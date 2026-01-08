@@ -7,7 +7,7 @@ A powerful Burp Suite extension for automating complex authentication flows and 
 ![Burp Suite Pro](https://img.shields.io/badge/Burp%20Suite-Pro-orange)
 ![Version](https://img.shields.io/badge/version-1.0.0-blue)
 
-## 🎯 Overview
+## Overview
 
 COOOKIES automates the tedious process of maintaining authenticated sessions for multiple users during security testing. It allows you to:
 
@@ -37,20 +37,7 @@ Handle multiple user accounts efficiently:
 - **Bulk Credential Loading**: Import credentials from files or paste directly
 - **Parallel Session Maintenance**: Execute the authentication pipeline for all users
 - **Per-User Variable Storage**: Each user's extracted values are stored independently
-- **Quick Credential Cycling**: Use `Ctrl+Shift+C` hotkey to cycle between users in Repeater/Intruder
-
-### 🔐 Advanced Token Handling
-
-- **Final Auth Value**: Designate one extraction as the "final auth value" (e.g., JWT token)
-- **Pattern-Based Injection**: Use patterns like `<__COOOKIES__:username>` for automatic replacement
-- **Cookie Aggregation**: Automatically combine multiple `Set-Cookie` headers
-- **Static Variables**: Define reusable variables for API keys, base URLs, etc.
-
-### 🔁 Automatic Session Refresh
-
-- **Session Expiration Detection**: Monitor responses for configured expiration strings
-- **Auto-Refresh**: Automatically re-execute the pipeline when sessions expire
-- **Custom Expiration Patterns**: Define your own logout/expiration detection strings
+- **Quick Credential Cycling**: Use `Ctrl+Shift+C` hotkey to cycle between users in Repeater, Intruder and other Burp Tools
 
 ### 🚀 Request Interception
 
@@ -58,28 +45,11 @@ Handle multiple user accounts efficiently:
 - **Tool Integration**: Works with Repeater, Intruder, and other Burp tools
 - **Context Menu Integration**: `Right-click > Extension > COOOKIES` to view and insert patterns into requests
 
-## 📋 Use Cases
+### 🔁 Automatic Session Refresh
 
-### OAuth/OIDC Flows
-
-Automate complex OAuth authentication:
-
-1. Request authorization endpoint → Extract `code`
-2. Exchange code for tokens → Extract `access_token` and `refresh_token`
-3. Use tokens in API requests
-
-### API Testing with Multiple Roles
-
-Test role-based access control:
-
-- Maintain sessions for Admin, User, Guest accounts
-- Quickly switch between users with `Ctrl+Shift+C`
-- Compare responses across different privilege levels
-
-### Penetration Testing
-
-- **Privilege Escalation**: Compare API responses across different user roles
-- **Concurrent User Testing**: Simulate multiple users accessing the same resources
+- **Custom Expiration Patterns**: Define your own logout/expiration detection strings
+- **Session Expiration Detection**: Monitor responses for configured expiration strings
+- **Auto-Refresh**: Automatically re-execute the pipeline when sessions expire
 
 ## 🛠️ Installation
 
@@ -90,41 +60,45 @@ Test role-based access control:
 ### Installation Steps
 
 1. **Download the JAR file**
+   1. Click Releases
+   2. Download `COOOKIES.jar`
 
 2. **Load in Burp Suite:**
-   - Open Burp Suite Professional
-   - Go to `Extensions` → `Installed`
-   - Click `Add`
-   - Select `BurpExtender.jar`
+   1. Open Burp Suite Professional
+   2. Go to `Extensions` → `Installed`
+   3. Click `Add`
+   4. Select `COOOKIES.jar`
 
 ## 📖 Usage Guide
 
 ### 1. Setting Up an Authentication Pipeline
 
-1. **Navigate to the COOOKIES tab** in Burp Suite
+1. **Navigate to the COOOKIES tab**
 2. **Add requests to your pipeline:**
-   - Click "Add" in the Pipeline Requests section
-   - Name your request (e.g., "Get Login Form", "Submit Credentials")
-   - Edit the raw HTTP request in the Request editor
-3. **Configure extractions** for each request:
-   - Select the request
-   - Go to the "Extractions" tab
-   - Click "Add Extraction" or "Extract Auth Value"
+   - Click `Add` in the Pipeline Requests section
+   - Name your request (e.g., "Get Login OTP", "Submit Credentials", etc.)
+   - Edit the raw HTTP request in the Request editor:
+   - When a request in the pipeline is selected, inside the `Available Patterns` panel you can find a list of all the injectable values currently available ( `<COOOKIES:USERNAME>`, `<COOOKIES:extractionName>`, etc. )
+3. **Configure extractions** for each response in the pipeline:
+   - Select the desired response
+   - Go to the `Extractions` tab
+   - Click `Add Extraction` or `Extract Auth Value`
    - Choose extraction type (Header/JSON/Regex) and provide the extraction rule
+   - The dynamically extracted value will be available for every following step in the pipeline, as well as in the other Burp Tools
 
 ### 2. Adding Credentials
 
 **Method 1: Manual Entry**
-- Go to "Credentials" tab
-- Click "Add" and enter username:password
+- Go to `Credentials` tab
+- Click `Add` and enter username and password
 
 **Method 2: Bulk Import**
 - Prepare a file with `username:password` per line
-- Click "Load..." and select the file
+- Click `Load...` and select the file
 
 **Method 3: Paste**
 - Copy credentials from anywhere (format: `username:password` per line)
-- Click "Paste"
+- Click `Paste`
 
 ### 3. Variable Patterns
 
@@ -134,33 +108,33 @@ Use these patterns in your requests:
 - `<COOOKIES:PASSWORD>` - Current password ( PIPELINE ONLY )
 - `<COOOKIES:COOKIES>` - Aggregated cookies from Set-Cookie header of previous step in the pipeline ( PIPELINE ONLY )
 - `<COOOKIES:API_KEY>` - Custom static variables ( PIPELINE ONLY )
-- `<COOOKIES:extractionName>` - Value extracted by a named extraction rule ( PIPELINE ONLY )
-- `<COOOKIES:username:extractionName>` - User-specific extracted value ( other burp tools )
-- `<__COOOKIES__:username>` - Final auth value for a specific user ( other burp tools )
+- `<COOOKIES:extractionName>` - Value extracted by a extraction rule in a previous step ( PIPELINE ONLY )
+- `<COOOKIES:username:extractionName>` - User-specific extracted value ( other Burp Tools )
+- `<__COOOKIES__:username>` - Final auth value for a specific user ( other Burp Tools )
 
 ### 4. Executing the Pipeline
 
-1. Click **"Execute Pipeline"** in the middle panel
+1. Click `Execute Pipeline` in the middle panel
 2. Monitor progress in the Execution Logs
 3. Verify extracted values are correct
 
 ### 5. Using Patterns in Burp Tools
 
-**IMPORTANT:** "Request Interception" in the bottom-right panel needs to be enabled for this feature to work
+**IMPORTANT:** `Request Interception` in the bottom-right panel needs to be enabled for this feature to work
 
 **Automatic Injection:**
-1. Use patterns in Repeater, Intruder, ecc...
+1. Use patterns in Repeater, Intruder, etc.
 2. Patterns are automatically replaced with actual values
 
 **Insertion with Montoya API Sub-Menu:**
 1. Right-click in a request editor
-2. Select the "Extension" submenu and then "COOOKIES"
+2. Select the `Extension` submenu and then `COOOKIES`
 3. Choose the pattern to insert:
-   1. If text was selected before right-clicking, the pattern will be injected directly
-   2. Otherwise copied in clipboard
+   - If text was selected before right-clicking, the pattern will be injected directly
+   - Otherwise copied in clipboard
 
 **Quick Cycling:**
-- Press `Ctrl+Shift+C` in Repeater to cycle between users
+- Press `Ctrl+Shift+C` in Repeater to quickly cycle between available users
 
 **Third Party Tools:**
 - Since the Proxy itself is a burp component, the extension is also able to edit requests that are simply being proxied via burp
@@ -170,11 +144,15 @@ curl -is "https://example.com/" -H "Authorization: Bearer <__COOOKIES__:username
 
 ### 6. Session Auto-Refresh
 
-1. Go to "Response Detection" tab
-2. Enable "Response Interception"
-3. Add session expiration strings (e.g., "Session expired", "401 Unauthorized", ecc...)
+1. Go to `Response Detection` tab
+2. Enable `Response Interception`
+3. Add session expiration strings (e.g., "Session expired", "401 Unauthorized", etc.)
 4. When detected, the pipeline automatically re-executes
 5. The responses which are flagged as "Expired session" will have a custom header injected in them: `### Coookies-Expiration: HIT`
+
+### 7. Debug
+
+If needed, look at the Burp Logger to see if patterns are being replaced correctly both in pipeline execution and for patterns used inside of the Burp Tools
 
 ## 🔧 Configuration
 
@@ -189,9 +167,9 @@ Configure default settings for pipeline requests:
 
 Define reusable values:
 
-1. Go to "Static Variables" tab
+1. Go to `Static Variables` tab
 2. Add variable name and value
-3. Use in requests as `<COOOKIES:VARIABLE_NAME>`
+3. Use in pipeline requests as `<COOOKIES:VARIABLE_NAME>`
 
 Useful when OAuth flows require client-side generation of values (e.g., code challenge and verifier).
 
@@ -199,13 +177,13 @@ Useful when OAuth flows require client-side generation of values (e.g., code cha
 
 ### Exporting Pipelines
 
-1. Click "Export Pipeline"
+1. Click `Export Pipeline`
 2. Save as `.coookies` file
 3. Share with team or reuse later
 
 ### Importing Pipelines
 
-1. Click "Import Pipeline"
+1. Click `Import Pipeline`
 2. Select `.coookies` file
 3. All requests, extractions, credentials, and settings are restored
 
@@ -217,36 +195,70 @@ Useful when OAuth flows require client-side generation of values (e.g., code cha
 
 **Pipeline Structure:**
 
-1. **Request: "Get Token"**
-   ```
+1. **Request: "Get X-Csrf Token"**
+   ```http
    GET /api/token HTTP/1.1
    Host: auth.example.com
    ```
-   - **Extraction (Regex)**: `token=([^;]+)` → Save as `otp`
+   - **Extraction (Header)**: `Set-Cookie` → Save as `cookies`
+   - **Extraction (Regex)**: `token=([^;]+)` → Save as `x-csrf`
 
 2. **Request: "Perform actual login"**
-   ```
+   ```http
    POST /api/login HTTP/1.1
    Host: auth.example.com
+   Cookie: <COOOKIES:cookies>
+   X-Csrf-Token: <COOOKIES:x-csrf>
    Content-Type: application/x-www-form-urlencoded
-   Token: <COOOKIES:otp>
+   Content-Length: 57
    
    username=<COOOKIES:USERNAME>&password=<COOOKIES:PASSWORD>
    ```
    - **Extraction (JSON)**: `['access_token']` → Save as Final Auth Value
 
 **Use in Repeater:**
-```
-GET /api/user/profile HTTP/1.1
-Host: api.example.com
-Authorization: Bearer <__COOOKIES__:guest>
-```
-Use Hot Key to quickly cycle to next user:
-```
-GET /api/user/profile HTTP/1.1
-Host: api.example.com
-Authorization: Bearer <__COOOKIES__:admin>
-```
+   1. Simple request
+   ```http
+   GET /api/user/profile HTTP/1.1
+   Host: api.example.com
+   Authorization: Bearer <__COOOKIES__:guest>
+   ```
+
+   2. Request with more than one injection
+   ```http
+   POST /api/user/editemail HTTP/1.1
+   Host: auth.example.com
+   Authorization: Bearer <__COOOKIES__:admin>
+   X-Csrf-Token: <COOOKIES:admin:x-csrf>
+   Content-Type: application/x-www-form-urlencoded
+   Content-Length: 17
+
+   email=foo@bar.com
+   ```
+
+   3. To quickly cycle to another user just use the hotkey
+   ```http
+   POST /api/admin/execute HTTP/1.1
+   Host: auth.example.com
+   Authorization: Bearer <__COOOKIES__:admin>
+   X-Csrf-Token: <COOOKIES:admin:x-csrf>
+   Content-Type: application/x-www-form-urlencoded
+   Content-Length: 14
+
+   command=whoami
+   ```
+   **⌄⌄⌄**
+   ```http
+   POST /api/admin/execute HTTP/1.1
+   Host: auth.example.com
+   Authorization: Bearer <__COOOKIES__:guest>
+   X-Csrf-Token: <COOOKIES:guest:x-csrf>
+   Content-Type: application/x-www-form-urlencoded
+   Content-Length: 14
+
+   command=whoami
+   ```
+
 
 ## ⚠️ Disclaimer
 
