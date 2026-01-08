@@ -13,6 +13,10 @@ import burp.api.montoya.ui.editor.HttpResponseEditor;
 import burp.api.montoya.core.ToolType;
 import burp.api.montoya.core.Range;
 import burp.api.montoya.http.message.HttpHeader;
+import burp.api.montoya.ui.settings.SettingsPanelBuilder;
+import burp.api.montoya.ui.settings.SettingsPanelPersistence;
+import burp.api.montoya.ui.settings.SettingsPanelSetting;
+import burp.api.montoya.ui.settings.SettingsPanelWithData;
 
 import burp.api.montoya.ui.hotkey.HotKeyContext;
 import burp.api.montoya.ui.hotkey.HotKeyHandler;
@@ -79,7 +83,21 @@ public class BurpExtender implements BurpExtension, HttpHandler, ContextMenuItem
         api.http().registerHttpHandler(this);
         api.userInterface().registerContextMenuItemsProvider(this);
 
-        HotKey rollCredentialsHotKey = HotKey.hotKey("Roll to next credential", "Ctrl+Shift+C");
+        SettingsPanelWithData panel = SettingsPanelBuilder.settingsPanel()
+            .withPersistence(SettingsPanelPersistence.USER_SETTINGS)
+            .withTitle("COOOKIES Settings")
+            .withDescription("IMPORTANT: after editing the Hotkey reload the extension to see changes")
+            .withSettings(
+                SettingsPanelSetting.stringSetting("Hotkey", "Ctrl+Shift+C")
+                )
+            .build();
+        api.userInterface().registerSettingsPanel(panel);
+
+        String preferredHotkey = panel.getString("Hotkey");
+
+        api.logging().logToOutput("Hotkey loaded: "+preferredHotkey);
+
+        HotKey rollCredentialsHotKey = HotKey.hotKey("Roll to next credential", preferredHotkey);
 
         HotKeyHandler rollHandler = event -> event.messageEditorRequestResponse().ifPresent(editor -> {
             try {
@@ -1491,6 +1509,41 @@ public class BurpExtender implements BurpExtension, HttpHandler, ContextMenuItem
                     }
                 }
                 
+                int expStart = json.indexOf("\"expirationStrings\"");
+                if (expStart != -1) {
+                    int expArrayStart = json.indexOf("[", expStart);
+                    int expArrayEnd = findMatchingBracket(json, expArrayStart);
+                    String expSection = json.substring(expArrayStart + 1, expArrayEnd);
+                    
+                    StringBuilder expText = new StringBuilder();
+                    int currentPos = 0;
+                    while (currentPos < expSection.length()) {
+                        int quoteStart = expSection.indexOf("\"", currentPos);
+                        if (quoteStart == -1) break;
+                        
+                        int quoteEnd = quoteStart + 1;
+                        while (quoteEnd < expSection.length()) {
+                            if (expSection.charAt(quoteEnd) == '\"' && expSection.charAt(quoteEnd - 1) != '\\') {
+                                break;
+                            }
+                            quoteEnd++;
+                        }
+                        
+                        if (quoteEnd < expSection.length()) {
+                            String expString = unescapeJson(expSection.substring(quoteStart + 1, quoteEnd));
+                            if (expText.length() > 0) {
+                                expText.append("\n");
+                            }
+                            expText.append(expString);
+                        }
+                        
+                        currentPos = quoteEnd + 1;
+                    }
+                    
+                    expirationStringsArea.setText(expText.toString());
+                    updateExpirationStringsList();
+                }
+                
                 int configStart = json.indexOf("\"httpConfig\"");
                 if (configStart != -1) {
                     int configObjStart = json.indexOf("{", configStart);
@@ -1522,11 +1575,17 @@ public class BurpExtender implements BurpExtension, HttpHandler, ContextMenuItem
                 
                 updateAvailableVariables();
                 
+                int expCount = 0;
+                synchronized (expirationStrings) {
+                    expCount = expirationStrings.size();
+                }
+                
                 JOptionPane.showMessageDialog(mainPanel,
                     "Pipeline imported successfully!\n\n" +
                     "Requests: " + pipeline.size() + "\n" +
                     "Credentials: " + credentialsTableModel.getRowCount() + "\n" +
-                    "Static Variables: " + staticVarsTableModel.getRowCount(),
+                    "Static Variables: " + staticVarsTableModel.getRowCount() + "\n" +
+                    "Expiration Strings: " + expCount,
                     "Import Success",
                     JOptionPane.INFORMATION_MESSAGE);
                 
@@ -1946,6 +2005,17 @@ public class BurpExtender implements BurpExtension, HttpHandler, ContextMenuItem
                 json.append("    {\"name\": \"").append(escapeJson(varName)).append("\", ");
                 json.append("\"value\": \"").append(escapeJson(varValue)).append("\"}");
                 if (i < staticVarsTableModel.getRowCount() - 1) json.append(",");
+                json.append("\n");
+            }
+        }
+        json.append("  ],\n");
+        
+        json.append("  \"expirationStrings\": [\n");
+        updateExpirationStringsList();
+        synchronized (expirationStrings) {
+            for (int i = 0; i < expirationStrings.size(); i++) {
+                json.append("    \"").append(escapeJson(expirationStrings.get(i))).append("\"");
+                if (i < expirationStrings.size() - 1) json.append(",");
                 json.append("\n");
             }
         }
