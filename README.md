@@ -5,7 +5,7 @@
 A powerful Burp Suite extension for automating complex authentication flows and managing session tokens across multiple user accounts. Perfect for penetration testers working with OAuth, multi-step logins, or any application requiring sophisticated session management.
 
 ![Burp Suite Pro](https://img.shields.io/badge/Burp%20Suite-Pro-orange)
-![Version](https://img.shields.io/badge/version-1.0.0-blue)
+![Version](https://img.shields.io/badge/version-1.0.1-blue)
 
 ## 🔎 Overview
 
