@@ -134,7 +134,8 @@ Use these patterns in your requests:
    - Otherwise copied in clipboard
 
 **Quick Cycling:**
-- Press `Ctrl+Shift+C` in Repeater to quickly cycle between available users
+- Press Hotkey in Repeater to quickly cycle between available users:
+   - Default keybinding is `Ctrl+Shift+C`, but can be changed inside Settings > Extensions > COOOKIES
 
 **Third Party Tools:**
 - Since the Proxy itself is a burp component, the extension is also able to edit requests that are simply being proxied via burp

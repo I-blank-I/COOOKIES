@@ -86,7 +86,7 @@ public class BurpExtender implements BurpExtension, HttpHandler, ContextMenuItem
         SettingsPanelWithData panel = SettingsPanelBuilder.settingsPanel()
             .withPersistence(SettingsPanelPersistence.USER_SETTINGS)
             .withTitle("COOOKIES Settings")
-            .withDescription("IMPORTANT: after editing the Hotkey reload the extension to see changes")
+            .withDescription("IMPORTANT: after editing the Hotkey reload the extension to apply changes")
             .withSettings(
                 SettingsPanelSetting.stringSetting("Hotkey", "Ctrl+Shift+C")
                 )
