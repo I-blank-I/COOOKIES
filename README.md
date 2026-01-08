@@ -139,7 +139,7 @@ Use these patterns in your requests:
 **Third Party Tools:**
 - Since the Proxy itself is a burp component, the extension is also able to edit requests that are simply being proxied via burp
 ```bash
-curl -is "https://example.com/" -H "Authorization: Bearer <__COOOKIES__:username>" -x http://127.0.0.1:8080 -k
+curl -is "https://auth.example.com/" -H "Authorization: Bearer <__COOOKIES__:username>" -x http://127.0.0.1:8080 -k
 ```
 
 ### 6. Session Auto-Refresh
@@ -220,7 +220,7 @@ Useful when OAuth flows require client-side generation of values (e.g., code cha
    1. Simple request
    ```http
    GET /api/user/profile HTTP/1.1
-   Host: api.example.com
+   Host: auth.example.com
    Authorization: Bearer <__COOOKIES__:guest>
    ```
 
