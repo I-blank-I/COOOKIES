@@ -216,6 +216,10 @@ Useful when OAuth flows require client-side generation of values (e.g., code cha
    ```
    - **Extraction (JSON)**: `['access_token']` → Save as Final Auth Value
 
+**Execute Pipeline**
+   - Click `Execute Pipeline` and monitor pipeline flow
+   - If done correctly, all user will login and obtain a session
+
 **Use in Repeater:**
    1. Simple request
    ```http
