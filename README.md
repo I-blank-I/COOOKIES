@@ -1,13 +1,13 @@
 # COOOKIES - Burp Suite Extension
 
-![](./cookies.png)
+![](./img/cookies.png)
 
 A powerful Burp Suite extension for automating complex authentication flows and managing session tokens across multiple user accounts. Perfect for penetration testers working with OAuth, multi-step logins, or any application requiring sophisticated session management.
 
 ![Burp Suite Pro](https://img.shields.io/badge/Burp%20Suite-Pro-orange)
 ![Version](https://img.shields.io/badge/version-1.0.0-blue)
 
-## Overview
+## 🔎 Overview
 
 COOOKIES automates the tedious process of maintaining authenticated sessions for multiple users during security testing. It allows you to:
 
@@ -16,7 +16,24 @@ COOOKIES automates the tedious process of maintaining authenticated sessions for
 - **Auto-inject authentication tokens** into your testing workflow
 - **Auto-refresh expired sessions** when detecting logout responses
 
-## ✨ Key Features
+## 🖥️ GUI Overview
+
+![](./img/GUI.png)
+
+1. List of requests in the pipeline
+2. Buttons to add/remove/move a request in the pipeline
+3. Editor for selected raw HTTP request
+4. List of currently available patterns for the selected request
+5. Tab that handles credentials
+6. Tab that handles custom static variables
+7. Tab that hanldes custom extraction rules, executed on the response associated to the currently selected request
+8. Pipeline execution logs
+9. Execute pipeline, import and export buttons
+10. Request interception menu: allows to toggle on/off request interception feature
+11. Response interception menu: allows to toggle on/off response interception feature and to define the custom expiration strings
+12. Configuration area for HTTP protocol ( port, https/http )
+
+## ✨ Features
 
 ### 🔄 Authentication Pipeline Builder
 
@@ -37,13 +54,11 @@ Handle multiple user accounts efficiently:
 - **Bulk Credential Loading**: Import credentials from files or paste directly
 - **Parallel Session Maintenance**: Execute the authentication pipeline for all users
 - **Per-User Variable Storage**: Each user's extracted values are stored independently
-- **Quick Credential Cycling**: Use `Ctrl+Shift+C` hotkey to cycle between users in Repeater, Intruder and other Burp Tools
 
 ### 🚀 Request Interception
 
 - **Pattern Replacement**: Automatically replace COOOKIES patterns in outgoing requests
 - **Tool Integration**: Works with Repeater, Intruder, and other Burp tools
-- **Context Menu Integration**: `Right-click > Extension > COOOKIES` to view and insert patterns into requests
 
 ### 🔁 Automatic Session Refresh
 
@@ -118,13 +133,13 @@ Use these patterns in your requests:
 2. Monitor progress in the Execution Logs
 3. Verify extracted values are correct
 
-### 5. Using Patterns in Burp Tools
+### 5. Use Patterns in Burp Tools
 
 **IMPORTANT:** `Request Interception` in the bottom-right panel needs to be enabled for this feature to work
 
 **Automatic Injection:**
 1. Use patterns in Repeater, Intruder, etc.
-2. Patterns are automatically replaced with actual values
+2. Patterns are automatically replaced when detected with the actual values
 
 **Insertion with Montoya API Sub-Menu:**
 1. Right-click in a request editor
@@ -135,7 +150,7 @@ Use these patterns in your requests:
 
 **Quick Cycling:**
 - Press Hotkey in Repeater to quickly cycle between available users
-- Default keybinding is `Ctrl+Shift+C`, but can be changed inside Settings > Extensions > COOOKIES
+- Default keybinding is `Ctrl+Shift+C`, but can be changed inside Settings > Extensions > COOOKIES , but the extension needs to be reloaded
 
 **Third Party Tools:**
 - Since the Proxy itself is a burp component, the extension is also able to edit requests that are simply being proxied via burp
