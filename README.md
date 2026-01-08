@@ -60,14 +60,14 @@ Handle multiple user accounts efficiently:
 ### Installation Steps
 
 1. **Download the JAR file**
-   1. Click Releases
-   2. Download `COOOKIES.jar`
+   - Click Releases
+   - Download `COOOKIES.jar`
 
 2. **Load in Burp Suite:**
-   1. Open Burp Suite Professional
-   2. Go to `Extensions` → `Installed`
-   3. Click `Add`
-   4. Select `COOOKIES.jar`
+   - Open Burp Suite Professional
+   - Go to `Extensions` → `Installed`
+   - Click `Add`
+   - Select `COOOKIES.jar`
 
 ## 📖 Usage Guide
 
