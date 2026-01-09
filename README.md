@@ -281,11 +281,21 @@ Useful when OAuth flows require client-side generation of values (e.g., code cha
    command=whoami
    ```
 
-## 👾 Example use in Burp Repeater
+## 👾 Example uses in Burp Repeater
 
-Example inside of Burp Repeater, using the Hotkey to quickly switch between the available users: `admin` and `guest`
+Examples inside of Burp Repeater:
+
+1. Build a working authenticated HTTP request with context menu; the Logger can help seeing patterns resolution
+
+https://github.com/user-attachments/assets/22ee75a6-7559-4d7d-8fd7-ed124a5909a9
+
+2. Using Hotkey to quickly switch between the available users: `admin` and `guest`
 
 https://github.com/user-attachments/assets/cc454ffa-789f-4776-9f79-37eb0db36431
+
+3. Implementing the Session Auto-Refresh feature
+
+https://github.com/user-attachments/assets/c0207460-a3d4-4c15-bb99-e1f480cb980c
 
 ## ⚠️ Disclaimer
 
