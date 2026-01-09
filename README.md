@@ -16,7 +16,10 @@ COOOKIES automates the tedious process of maintaining authenticated sessions for
 - **Auto-inject authentication tokens** into your testing workflow
 - **Auto-refresh expired sessions** when detecting logout responses
 
-Macros? Love 'em. But there's currently no way for an extension to kick off a macro flow via API. COOOKIES lets you do exactly that—catch session expirations mid-test and re-auth on the fly without breaking stride.
+Macros? Love 'em. But there's currently no way for an extension to kick off a macro flow via API. COOOKIES lets you do exactly that—catch session expirations mid-test and re-auth on the fly without breaking stride, recreating the macro behavior from scratch so you have full programmatic control, everything in one place.
+
+This opens up a world of possibilities for Burp users: build custom tools or extensions that work in harmony with COOOKIES. As long as your traffic is proxied through Burp and COOOKIES is enabled, every request stays fully authenticated.
+Mix and match extensions to create custom active scans, passive monitoring, or any authenticated testing workflow you might need.
 
 ## 🖥️ GUI Overview
 
