@@ -205,7 +205,7 @@ Useful when OAuth flows require client-side generation of values (e.g., code cha
 2. Select `.coookies` file
 3. All requests, extractions, credentials, and settings are restored
 
-## 🎯 Example:
+## 🎯 Pipeline Example:
 
 **Credentials:**
 - `guest`:`1234`
@@ -281,6 +281,11 @@ Useful when OAuth flows require client-side generation of values (e.g., code cha
    command=whoami
    ```
 
+## 👾 Example use in Burp Repeater
+
+Example inside of Burp Repeater, using the Hotkey to quickly switch between the available users: `admin` and `guest`
+
+https://github.com/user-attachments/assets/cc454ffa-789f-4776-9f79-37eb0db36431
 
 ## ⚠️ Disclaimer
 
