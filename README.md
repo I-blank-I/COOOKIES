@@ -217,14 +217,43 @@ Useful when OAuth flows require client-side generation of values (e.g., code cha
 **Pipeline Structure:**
 
 1. **Request: "Get X-Csrf Token"**
+
+   Request:
    ```http
    GET /api/token HTTP/1.1
    Host: auth.example.com
    ```
-   - **Extraction (Header)**: `Set-Cookie` → Save as `cookies`
-   - **Extraction (Regex)**: `token=([^;]+)` → Save as `x-csrf`
+   Response:
+   ```http
+   HTTP/1.1 200 OK
+   Set-Cookie: session_id=kngrupq35z4ddslr; HttpOnly
+   Set-Cookie: token=02a7e755d0aee6ed1e598acfa0c403f4; HttpOnly
+   Content-Type: text/html
+   Content-Length: 539
+   Connection: close
+
+
+   <!DOCTYPE html>
+   <html>
+   <head><title>Login</title></head>
+   <body>
+      <h1>Login</h1>
+      <form>
+      <input name="username" placeholder="Username"><br>
+      <input name="password" type="password" placeholder="Password"><br>
+      <button>Login</button>
+      </form>
+   </body>
+   </html>
+   ```
+   - **Extraction (Header)**: `Set-Cookie` → Save as `cookies`: will store all cookies found in the response
+      - in this example, value will become `session_id=kngrupq35z4ddslr; token=02a7e755d0aee6ed1e598acfa0c403f4`
+   - **Extraction (Regex)**: `token=([^;]+)` → Save as `x-csrf`: will store **ONLY the first capturing group**
+      - in this example, value will become `02a7e755d0aee6ed1e598acfa0c403f4`
 
 2. **Request: "Perform actual login"**
+
+   Request:
    ```http
    POST /api/login HTTP/1.1
    Host: auth.example.com
@@ -235,7 +264,17 @@ Useful when OAuth flows require client-side generation of values (e.g., code cha
    
    username=<COOOKIES:USERNAME>&password=<COOOKIES:PASSWORD>
    ```
-   - **Extraction (JSON)**: `['access_token']` → Save as Final Auth Value
+   Response:
+   ```http
+   HTTP/1.1 200 OK
+   Content-Type: application/json
+   Content-Length: 56
+   Connection: close
+
+   {"access_token":"082e3c29c35262e5f7d80a1bf6c1b129"}
+   ```
+   - **Extraction (JSON)**: `['access_token']` → Save as Final Auth Value: will store the JSON value of specified path
+      - in this example, value will become `082e3c29c35262e5f7d80a1bf6c1b129`
 
 **Execute Pipeline**
    - Click `Execute Pipeline` and monitor pipeline flow
