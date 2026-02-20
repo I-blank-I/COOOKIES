@@ -56,12 +56,15 @@ public class BurpExtender implements BurpExtension, HttpHandler, ContextMenuItem
     private volatile boolean isRefreshing = false;
     
     private Map<String, Map<String, String>> extractedValues;
+    private final Map<Integer, String> modifiedRequests = Collections.synchronizedMap(new HashMap<>());
     private Map<String, String> finalAuthValues;
+    private boolean updateContentLength = false;
     private boolean interceptionEnabled = false;
     private boolean interceptionResEnabled = false;
     private boolean proxyTool = false;
     private boolean proxyToolRes = false;
     private JToggleButton interceptionToggle;
+    private JToggleButton ContentLengthToggle;
     private JToggleButton interceptionResToggle;
     private JToggleButton proxyToggle;
     private JToggleButton proxyToggleRes;
@@ -175,6 +178,9 @@ public class BurpExtender implements BurpExtension, HttpHandler, ContextMenuItem
             
             mainPanel.add(mainSplit);
             api.userInterface().registerSuiteTab("COOOKIES", mainPanel);
+
+            // Load configuration saved in the project file (if any)
+            loadFromProject();
         });
     }
     
@@ -188,14 +194,28 @@ public class BurpExtender implements BurpExtension, HttpHandler, ContextMenuItem
                     return RequestToBeSentAction.continueWith(requestToBeSent);
                 }
                 
-                String modifiedRequest = replacePatterns(requestStr);
+                String[] resp = replacePatterns(requestStr);
+
+                String username = resp[0];
+                String modifiedRequest = resp[1];
                 
                 if (!modifiedRequest.equals(requestStr)) {
                     HttpRequest newRequest = HttpRequest.httpRequest(modifiedRequest);
+
+                    if (updateContentLength) {
+                        int bodyOffset = modifiedRequest.indexOf("\r\n\r\n");
+                        if (bodyOffset != -1) {
+                            String body = modifiedRequest.substring(bodyOffset + 4);
+                            int newBodyLength = body.getBytes().length;
+                            newRequest = newRequest.withUpdatedHeader("Content-Length", String.valueOf(newBodyLength));
+                        }
+                    }
                     
                     if (requestToBeSent.httpService() != null) {
                         newRequest = newRequest.withService(requestToBeSent.httpService());
                     }
+
+                    modifiedRequests.put(requestToBeSent.messageId(), username);
                     
                     api.logging().logToOutput("Replaced patterns in request from tool: " + requestToBeSent.toolSource().toolType());
                     return RequestToBeSentAction.continueWith(newRequest);
@@ -221,10 +241,26 @@ public class BurpExtender implements BurpExtension, HttpHandler, ContextMenuItem
 
     @Override
     public ResponseReceivedAction handleHttpResponseReceived(HttpResponseReceived responseReceived) {
+        HttpResponse currentResponse = responseReceived;
+
+        if (interceptionEnabled) {
+            try {
+                String username = modifiedRequests.remove(responseReceived.messageId());
+                if (username != null) {
+                    currentResponse = currentResponse.withAddedHeader(
+                        "### Coookies-Authenticated-User", 
+                        username
+                    );
+                }
+            } catch (Exception e) {
+                api.logging().logToError("Error in response interception: " + e.getMessage());
+            }
+        }
+
         if (interceptionResEnabled) {
             
             try {
-                String responseStr = responseReceived.toString();
+                String responseStr = currentResponse.toString();
 
                 boolean hasExpired = false;
                 synchronized (expirationStrings) {
@@ -269,7 +305,7 @@ public class BurpExtender implements BurpExtension, HttpHandler, ContextMenuItem
             }
         }
 
-        return ResponseReceivedAction.continueWith(responseReceived);
+        return ResponseReceivedAction.continueWith(currentResponse);
     }
 
     @Override
@@ -368,16 +404,19 @@ public class BurpExtender implements BurpExtension, HttpHandler, ContextMenuItem
         }
     }
 
-    private String replacePatterns(String request) {
+    private String[] replacePatterns(String request) {
         String result = request;
         
         Pattern authPattern = Pattern.compile("<__COOOKIES__:([^>]+)>");
         Matcher authMatcher = authPattern.matcher(result);
         StringBuffer sb = new StringBuffer();
-        
+        String auth_username = "";
+        String params_username = "";
+        String username = "";
+
         while (authMatcher.find()) {
-            String username = authMatcher.group(1);
-            String replacement = finalAuthValues.getOrDefault(username, authMatcher.group(0));
+            auth_username = authMatcher.group(1);
+            String replacement = finalAuthValues.getOrDefault(auth_username, authMatcher.group(0));
             authMatcher.appendReplacement(sb, Matcher.quoteReplacement(replacement));
         }
         authMatcher.appendTail(sb);
@@ -388,10 +427,10 @@ public class BurpExtender implements BurpExtension, HttpHandler, ContextMenuItem
         sb = new StringBuffer();
         
         while (varMatcher.find()) {
-            String username = varMatcher.group(1);
+            params_username = varMatcher.group(1);
             String varName = varMatcher.group(2);
             
-            Map<String, String> userVars = extractedValues.get(username);
+            Map<String, String> userVars = extractedValues.get(params_username);
             String replacement = varMatcher.group(0);
             
             if (userVars != null && userVars.containsKey(varName)) {
@@ -402,8 +441,14 @@ public class BurpExtender implements BurpExtension, HttpHandler, ContextMenuItem
         }
         varMatcher.appendTail(sb);
         result = sb.toString();
+
+        if (auth_username!="" || (params_username!="" && auth_username.equals(params_username))){
+            username = auth_username;
+        }
+
+        String[] resp = new String[]{username, result};
         
-        return result;
+        return resp;
     }
     
     private JPanel createTopLeftPanel() {
@@ -661,11 +706,22 @@ public class BurpExtender implements BurpExtension, HttpHandler, ContextMenuItem
         
         JButton importBtn = new JButton("Import Pipeline");
         importBtn.addActionListener(e -> importPipeline());
+
+        JButton saveToProjectBtn = new JButton("Save to Project");
+        saveToProjectBtn.setFont(new Font("Dialog", Font.BOLD, 12));
+        saveToProjectBtn.addActionListener(e -> {
+            saveToProject();
+            JOptionPane.showMessageDialog(mainPanel,
+                "Configuration saved to Burp project file!\n\nIt will be automatically restored next time you open this project.",
+                "Saved to Project", JOptionPane.INFORMATION_MESSAGE);
+        });
         
         panel.add(executeBtn);
         panel.add(Box.createHorizontalStrut(20));
         panel.add(exportBtn);
         panel.add(importBtn);
+        panel.add(Box.createHorizontalStrut(20));
+        panel.add(saveToProjectBtn);
         
         return panel;
     }
@@ -715,6 +771,20 @@ public class BurpExtender implements BurpExtension, HttpHandler, ContextMenuItem
                 interceptionToggle.setBackground(null);
             }
         });
+
+        ContentLengthToggle = new JToggleButton("Enable Content-Length Update");
+        ContentLengthToggle.setAlignmentX(Component.LEFT_ALIGNMENT);
+        ContentLengthToggle.setMaximumSize(new Dimension(Integer.MAX_VALUE, 35));
+        ContentLengthToggle.addActionListener(e -> {
+            updateContentLength = ContentLengthToggle.isSelected();
+            if (updateContentLength) {
+                ContentLengthToggle.setText("Disable Content-Length Update");
+                ContentLengthToggle.setBackground(new Color(144, 238, 144));
+            } else {
+                ContentLengthToggle.setText("Enable Content-Length Update");
+                ContentLengthToggle.setBackground(null);
+            }
+        });
         
         JLabel reqIntInfo = new JLabel("Automatically replaces patterns in outgoing requests");
         reqIntInfo.setFont(new Font("Dialog", Font.PLAIN, 11));
@@ -724,7 +794,8 @@ public class BurpExtender implements BurpExtension, HttpHandler, ContextMenuItem
         reqIntContent.add(reqIntTitle);
         reqIntContent.add(Box.createVerticalStrut(10));
         reqIntContent.add(interceptionToggle);
-        reqIntContent.add(Box.createVerticalStrut(5));
+        reqIntContent.add(Box.createVerticalStrut(10));
+        reqIntContent.add(ContentLengthToggle);
         reqIntContent.add(Box.createVerticalStrut(10));
         reqIntContent.add(reqIntInfo);
         reqIntContent.add(Box.createVerticalGlue());
@@ -1588,6 +1659,9 @@ public class BurpExtender implements BurpExtension, HttpHandler, ContextMenuItem
                     "Expiration Strings: " + expCount,
                     "Import Success",
                     JOptionPane.INFORMATION_MESSAGE);
+
+                // Persist the freshly imported config into the project file
+                saveToProject();
                 
             } catch (Exception ex) {
                 showError("Error importing pipeline:\n\n" + ex.getMessage() +
@@ -1704,6 +1778,7 @@ public class BurpExtender implements BurpExtension, HttpHandler, ContextMenuItem
         }
         
         log("\n=== Pipeline Execution Complete ===");
+        saveToProject();
     }
     
     private void executePipelineForCredential(Map<String, String> variables, String username) throws Exception {
@@ -1740,6 +1815,10 @@ public class BurpExtender implements BurpExtension, HttpHandler, ContextMenuItem
             }
             
             HttpRequest httpRequest = HttpRequest.httpRequest(processedRequest);
+
+            if (httpRequest.body().length() > 0) {
+                httpRequest = httpRequest.withUpdatedHeader("Content-Length", String.valueOf(httpRequest.body().length()));
+            }
             
             String host = null;
             int port = 80;
@@ -1941,6 +2020,185 @@ public class BurpExtender implements BurpExtension, HttpHandler, ContextMenuItem
             sb.append(element.toString()).append("\n");
         }
         return sb.toString();
+    }
+
+    private static final String PROJECT_DATA_KEY = "coookies_config";
+
+    private void saveToProject() {
+        try {
+            autoSaveRequest();
+            String json = buildJsonExport();
+            api.persistence().extensionData().setString(PROJECT_DATA_KEY, json);
+            api.logging().logToOutput("[COOOKIES] Configuration saved to project.");
+        } catch (Exception e) {
+            api.logging().logToError("[COOOKIES] Failed to save configuration to project: " + e.getMessage());
+        }
+    }
+
+    private void loadFromProject() {
+        try {
+            String json = api.persistence().extensionData().getString(PROJECT_DATA_KEY);
+            if (json == null || json.trim().isEmpty()) {
+                api.logging().logToOutput("[COOOKIES] No saved configuration found in project.");
+                return;
+            }
+
+            pipeline.clear();
+            requestListModel.clear();
+            credentialsTableModel.setRowCount(0);
+            staticVarsTableModel.setRowCount(0);
+            extractionPanel.removeAll();
+            extractionPanel.revalidate();
+            extractionPanel.repaint();
+            clearEditorsForImport();
+
+            // --- requests ---
+            int reqsStart = json.indexOf("\"requests\"");
+            if (reqsStart != -1) {
+                int reqsArrayStart = json.indexOf("[", reqsStart);
+                int reqsArrayEnd = findMatchingBracket(json, reqsArrayStart);
+                String requestsSection = json.substring(reqsArrayStart + 1, reqsArrayEnd);
+                String[] requestBlocks = splitJsonObjects(requestsSection);
+                for (String reqBlock : requestBlocks) {
+                    if (reqBlock.trim().isEmpty()) continue;
+                    String name = extractJsonString(reqBlock, "name");
+                    String rawRequest = extractJsonString(reqBlock, "rawRequest");
+                    PipelineRequest req = new PipelineRequest(name);
+                    req.rawRequest = rawRequest;
+
+                    int authExtStart = reqBlock.indexOf("\"authExtraction\"");
+                    if (authExtStart != -1) {
+                        int colonAfterAuth = reqBlock.indexOf(":", authExtStart);
+                        int nextCommaOrBrace = reqBlock.indexOf(",", colonAfterAuth);
+                        if (nextCommaOrBrace == -1) nextCommaOrBrace = reqBlock.indexOf("}", colonAfterAuth);
+                        String authValue = reqBlock.substring(colonAfterAuth + 1, nextCommaOrBrace).trim();
+                        if (!authValue.startsWith("null")) {
+                            int authObjStart = reqBlock.indexOf("{", authExtStart);
+                            if (authObjStart != -1 && authObjStart < nextCommaOrBrace) {
+                                int authObjEnd = findMatchingBracket(reqBlock, authObjStart);
+                                String authBlock = reqBlock.substring(authObjStart, authObjEnd + 1);
+                                AuthExtraction authExt = new AuthExtraction();
+                                authExt.type = extractJsonInt(authBlock, "type");
+                                authExt.value = extractJsonString(authBlock, "value");
+                                req.authExtraction = authExt;
+                            }
+                        }
+                    }
+
+                    int extStart = reqBlock.indexOf("\"extractions\"");
+                    if (extStart != -1) {
+                        int extArrayStart = reqBlock.indexOf("[", extStart);
+                        int extArrayEnd = findMatchingBracket(reqBlock, extArrayStart);
+                        String extractionsSection = reqBlock.substring(extArrayStart + 1, extArrayEnd);
+                        String[] extBlocks = splitJsonObjects(extractionsSection);
+                        for (String extBlock : extBlocks) {
+                            if (extBlock.trim().isEmpty()) continue;
+                            String extName = extractJsonString(extBlock, "name");
+                            int extType = extractJsonInt(extBlock, "type");
+                            String extValue = extractJsonString(extBlock, "value");
+                            Extraction ext = new Extraction(extName);
+                            ext.type = extType;
+                            ext.value = extValue;
+                            req.extractions.add(ext);
+                        }
+                    }
+
+                    pipeline.add(req);
+                    requestListModel.addElement(req);
+                }
+            }
+
+            // --- credentials ---
+            int credsStart = json.indexOf("\"credentials\"");
+            if (credsStart != -1) {
+                int credsArrayStart = json.indexOf("[", credsStart);
+                int credsArrayEnd = findMatchingBracket(json, credsArrayStart);
+                String credsSection = json.substring(credsArrayStart + 1, credsArrayEnd);
+                String[] credBlocks = splitJsonObjects(credsSection);
+                for (String credBlock : credBlocks) {
+                    if (credBlock.trim().isEmpty()) continue;
+                    String username = extractJsonString(credBlock, "username");
+                    String password = extractJsonString(credBlock, "password");
+                    credentialsTableModel.addRow(new Object[]{username, password});
+                }
+            }
+
+            // --- static variables ---
+            int varsStart = json.indexOf("\"staticVariables\"");
+            if (varsStart != -1) {
+                int varsArrayStart = json.indexOf("[", varsStart);
+                int varsArrayEnd = findMatchingBracket(json, varsArrayStart);
+                String varsSection = json.substring(varsArrayStart + 1, varsArrayEnd);
+                String[] varBlocks = splitJsonObjects(varsSection);
+                for (String varBlock : varBlocks) {
+                    if (varBlock.trim().isEmpty()) continue;
+                    String varName = extractJsonString(varBlock, "name");
+                    String varValue = extractJsonString(varBlock, "value");
+                    staticVarsTableModel.addRow(new Object[]{varName, varValue});
+                }
+            }
+
+            // --- expiration strings ---
+            int expStart = json.indexOf("\"expirationStrings\"");
+            if (expStart != -1) {
+                int expArrayStart = json.indexOf("[", expStart);
+                int expArrayEnd = findMatchingBracket(json, expArrayStart);
+                String expSection = json.substring(expArrayStart + 1, expArrayEnd);
+                StringBuilder expText = new StringBuilder();
+                int currentPos = 0;
+                while (currentPos < expSection.length()) {
+                    int quoteStart = expSection.indexOf("\"", currentPos);
+                    if (quoteStart == -1) break;
+                    int quoteEnd = quoteStart + 1;
+                    while (quoteEnd < expSection.length()) {
+                        if (expSection.charAt(quoteEnd) == '\"' && expSection.charAt(quoteEnd - 1) != '\\') break;
+                        quoteEnd++;
+                    }
+                    if (quoteEnd < expSection.length()) {
+                        String expString = unescapeJson(expSection.substring(quoteStart + 1, quoteEnd));
+                        if (expText.length() > 0) expText.append("\n");
+                        expText.append(expString);
+                    }
+                    currentPos = quoteEnd + 1;
+                }
+                expirationStringsArea.setText(expText.toString());
+                updateExpirationStringsList();
+            }
+
+            // --- httpConfig ---
+            int configStart = json.indexOf("\"httpConfig\"");
+            if (configStart != -1) {
+                int configObjStart = json.indexOf("{", configStart);
+                if (configObjStart != -1) {
+                    int configObjEnd = findMatchingBracket(json, configObjStart);
+                    String configBlock = json.substring(configObjStart, configObjEnd + 1);
+                    configuredPort = extractJsonInt(configBlock, "port");
+                    int httpsKeyIndex = configBlock.indexOf("\"https\"");
+                    if (httpsKeyIndex != -1) {
+                        int colonIndex = configBlock.indexOf(":", httpsKeyIndex);
+                        int valueStart = colonIndex + 1;
+                        while (valueStart < configBlock.length() && Character.isWhitespace(configBlock.charAt(valueStart))) valueStart++;
+                        configuredHttps = configBlock.substring(valueStart).trim().startsWith("true");
+                    }
+                    defaultPortField.setText(String.valueOf(configuredPort));
+                    forceHttpsCheckbox.setSelected(configuredHttps);
+                }
+            }
+
+            if (requestListModel.getSize() > 0) {
+                requestList.setSelectedIndex(0);
+                loadSelectedRequest();
+            }
+
+            updateAvailableVariables();
+            api.logging().logToOutput("[COOOKIES] Configuration loaded from project: " +
+                pipeline.size() + " requests, " +
+                credentialsTableModel.getRowCount() + " credentials, " +
+                staticVarsTableModel.getRowCount() + " static variables.");
+
+        } catch (Exception e) {
+            api.logging().logToError("[COOOKIES] Failed to load configuration from project: " + e.getMessage());
+        }
     }
 
     private String buildJsonExport() {
