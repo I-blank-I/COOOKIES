@@ -222,6 +222,16 @@ https://github.com/user-attachments/assets/c0207460-a3d4-4c15-bb99-e1f480cb980c
 
 ---
 
+## Works Great With LazyFlow
+
+Setting up extraction rules manually can be tedious for complex flows. **LazyFlow** solves this — select your **Login flow** requests in the Proxy, send them to LazyFlow, and it automatically detects all the values flowing between requests and generates a `.coookies` file with placeholders and extraction rules already configured. Import that file into COOOKIES and you're ready to run immediately.
+
+See the [LazyFlow](https://github.com/I-blank-I/LazyFlow) for details.
+
+> **⚠ Note:** The Credentials component **WILL NOT** be filled automatically — you will still need to manually add your credentials set. LazyFlow handles the flow structure, but the credentials are yours to configure.
+
+---
+
 ## Debugging
 
 Check the **Burp Logger** to see if patterns are being resolved correctly, both during pipeline execution and in Burp tools.

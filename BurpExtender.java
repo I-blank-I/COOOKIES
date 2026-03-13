@@ -248,7 +248,7 @@ public class BurpExtender implements BurpExtension, HttpHandler, ContextMenuItem
                 String username = modifiedRequests.remove(responseReceived.messageId());
                 if (username != null) {
                     currentResponse = currentResponse.withAddedHeader(
-                        "### Coookies-Authenticated-User", 
+                        "Coookies-Authenticated-User", 
                         username
                     );
                 }
@@ -275,7 +275,7 @@ public class BurpExtender implements BurpExtension, HttpHandler, ContextMenuItem
 
                 if (hasExpired) {
                     HttpResponse modifiedResponse = HttpResponse.httpResponse(responseStr)
-                        .withAddedHeader("### Coookies-Expiration", "HIT");
+                        .withAddedHeader("Coookies-Expiration", "HIT");
                     
                     if (!isRefreshing) {
                         isRefreshing = true;
