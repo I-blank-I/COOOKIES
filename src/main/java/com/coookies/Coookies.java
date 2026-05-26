@@ -35,7 +35,7 @@ import java.util.regex.*;
 import java.net.URL;
 import java.io.*;
 
-public class BurpExtender implements BurpExtension, HttpHandler, ContextMenuItemsProvider {
+public class Coookies implements BurpExtension, HttpHandler, ContextMenuItemsProvider {
     private MontoyaApi api;
     private JPanel mainPanel;
     private DefaultListModel<PipelineRequest> requestListModel;
