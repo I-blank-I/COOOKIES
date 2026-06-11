@@ -24,6 +24,11 @@
             <version>${montoya.version}</version>
             <scope>provided</scope>
         </dependency>
+        <dependency>
+            <groupId>javazoom</groupId>
+            <artifactId>jlayer</artifactId>
+            <version>1.0.1</version>
+        </dependency>
     </dependencies>
 
     <repositories>
