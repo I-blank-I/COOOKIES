@@ -69,13 +69,11 @@ public class Coookies implements BurpExtension, HttpHandler, ContextMenuItemsPro
     private JToggleButton proxyToggle;
     private JToggleButton proxyToggleRes;
 
-    // ── Easter egg ────────────────────────────────────────────────────────────
     private EasterEggPlayer easterEggPlayer;
     private int   eggClickCount      = 0;
     private long  eggFirstClickTime  = 0;
     private static final int  EGG_CLICKS_NEEDED = 10;
     private static final long EGG_CLICK_WINDOW  = 3000;
-    // ─────────────────────────────────────────────────────────────────────────
 
     private JTextField defaultPortField;
     private JCheckBox forceHttpsCheckbox;
