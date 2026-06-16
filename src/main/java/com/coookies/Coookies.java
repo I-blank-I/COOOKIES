@@ -167,7 +167,10 @@ public class Coookies implements BurpExtension, HttpHandler, ContextMenuItemsPro
         );
 
         HotKey executePipelineHotKey = HotKey.hotKey("Execute COOOKIES Pipeline", executePipelineHotkey);
-        HotKeyHandler executeHandler = event -> SwingUtilities.invokeLater(() -> executePipeline());
+        HotKeyHandler executeHandler = event -> SwingUtilities.invokeLater(() -> {
+            executePipeline();
+            setInterception(true);
+        });
         api.userInterface().registerHotKeyHandler(
             HotKeyContext.HTTP_MESSAGE_EDITOR,
             executePipelineHotKey,
@@ -505,11 +508,7 @@ public class Coookies implements BurpExtension, HttpHandler, ContextMenuItemsPro
         interceptionToggle = new JToggleButton("Req Intercept: OFF");
         interceptionToggle.setFont(interceptionToggle.getFont().deriveFont(Font.BOLD, 11f));
         interceptionToggle.setFocusPainted(false);
-        interceptionToggle.addActionListener(e -> {
-            interceptionEnabled = interceptionToggle.isSelected();
-            interceptionToggle.setText("Req Intercept: " + (interceptionEnabled ? "ON" : "OFF"));
-            interceptionToggle.setBackground(interceptionEnabled ? new Color(144, 238, 144) : null);
-        });
+        interceptionToggle.addActionListener(e -> setInterception(interceptionToggle.isSelected()));
 
         ContentLengthToggle = new JToggleButton("Content-Length: OFF");
         ContentLengthToggle.setFont(ContentLengthToggle.getFont().deriveFont(Font.BOLD, 11f));
@@ -541,6 +540,13 @@ public class Coookies implements BurpExtension, HttpHandler, ContextMenuItemsPro
 
         bar.add(right, BorderLayout.EAST);
         return bar;
+    }
+
+    private void setInterception(boolean enabled) {
+        interceptionEnabled = enabled;
+        interceptionToggle.setSelected(enabled);
+        interceptionToggle.setText("Req Intercept: " + (enabled ? "ON" : "OFF"));
+        interceptionToggle.setBackground(enabled ? new Color(144, 238, 144) : null);
     }
 
     /** Main area: pipeline list + editors on the left, config tabs on the right */
@@ -2068,6 +2074,7 @@ public class Coookies implements BurpExtension, HttpHandler, ContextMenuItemsPro
     }
 
     private void executePipeline() {
+        finalAuthValues.clear();
         autoSaveRequest();
         
         new Thread(() -> {
