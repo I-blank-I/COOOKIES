@@ -34,6 +34,8 @@ import java.util.List;
 import java.util.regex.*;
 import java.net.URL;
 import java.io.*;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.SynchronousQueue;
 
 public class Coookies implements BurpExtension, HttpHandler, ContextMenuItemsProvider {
     private MontoyaApi api;
@@ -85,6 +87,19 @@ public class Coookies implements BurpExtension, HttpHandler, ContextMenuItemsPro
     private JLabel statusLabel;
     private volatile int  pipelineActiveCredRow = -1;
     private volatile int  pipelineActiveReqRow  = -1;
+
+    // --- Checkpoint step (manual pause) plumbing ---
+    private CardLayout stepDetailLayout;
+    private JPanel stepDetailContainer;
+    private JPanel checkpointVarsList;
+    private JButton addCheckpointVarBtn;
+    private JButton checkpointContinueBtn;
+    private JLabel checkpointStatusLabel;
+    private final Map<String, JTextField> checkpointValueFields = new HashMap<>();
+    private final BlockingQueue<Boolean> checkpointContinueSignal = new SynchronousQueue<>();
+    private volatile boolean awaitingCheckpoint = false;
+    private volatile int awaitingCheckpointStepIdx = -1;
+    private volatile Map<String, String> pendingCheckpointValues = null;
 
     @Override
     public void initialize(MontoyaApi api) {
@@ -587,20 +602,37 @@ public class Coookies implements BurpExtension, HttpHandler, ContextMenuItemsPro
 
         JScrollPane listScroll = new JScrollPane(requestList);
 
-        JButton addBtn    = new JButton("Add");
-        JButton removeBtn = new JButton("Remove");
-        JButton upBtn     = new JButton("↑");
-        JButton downBtn   = new JButton("↓");
+        JButton addBtn     = new JButton("Add");
+        JButton addTypeBtn = new JButton("⌄");
+        JButton removeBtn  = new JButton("Remove");
+        JButton upBtn      = new JButton("↑");
+        JButton downBtn    = new JButton("↓");
         JButton saveReqBtn = new JButton("Save Request");
 
+        addBtn.setMargin(new Insets(2, 8, 2, 8));
+        addTypeBtn.setMargin(new Insets(2, 4, 2, 4));
+        addTypeBtn.setFocusPainted(false);
+        addTypeBtn.setToolTipText("Add other step types");
+
         addBtn.addActionListener(e -> addNewRequest());
+        addTypeBtn.addActionListener(e -> {
+            JPopupMenu menu = new JPopupMenu();
+            JMenuItem checkpointItem = new JMenuItem("Checkpoint (manual pause)");
+            checkpointItem.addActionListener(ev -> addNewCheckpointStep());
+            menu.add(checkpointItem);
+            menu.show(addTypeBtn, 0, addTypeBtn.getHeight());
+        });
         removeBtn.addActionListener(e -> removeSelectedRequest());
         upBtn.addActionListener(e -> moveRequest(-1));
         downBtn.addActionListener(e -> moveRequest(1));
         saveReqBtn.addActionListener(e -> autoSaveRequest());
 
+        JPanel addSplit = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        addSplit.add(addBtn);
+        addSplit.add(addTypeBtn);
+
         JPanel listBtns = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
-        listBtns.add(addBtn); listBtns.add(removeBtn);
+        listBtns.add(addSplit); listBtns.add(removeBtn);
         listBtns.add(upBtn);  listBtns.add(downBtn);
         listBtns.add(saveReqBtn);
 
@@ -625,13 +657,93 @@ public class Coookies implements BurpExtension, HttpHandler, ContextMenuItemsPro
         editorSplit.setTopComponent(requestPanel);
         editorSplit.setBottomComponent(responsePanel);
 
-        // Combine: list on top, both editors share remaining space
+        // Card-swapped detail area: HTTP request/response editors, or a Checkpoint panel
+        stepDetailLayout = new CardLayout();
+        stepDetailContainer = new JPanel(stepDetailLayout);
+        stepDetailContainer.add(editorSplit, "HTTP");
+        stepDetailContainer.add(buildCheckpointPanel(), "CHECKPOINT");
+
+        // Combine: list on top, detail area shares remaining space
         JSplitPane left = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
         left.setResizeWeight(0.18);
         left.setBorder(null);
         left.setTopComponent(listPanel);
-        left.setBottomComponent(editorSplit);
+        left.setBottomComponent(stepDetailContainer);
         return left;
+    }
+
+    /** Center panel shown for Checkpoint steps: grayed out unless the pipeline is paused on it */
+    private JPanel buildCheckpointPanel() {
+        JPanel wrapper = new JPanel(new BorderLayout(0, 0));
+        wrapper.setBorder(BorderFactory.createTitledBorder(
+            "Checkpoint — pipeline pauses here until you press Continue"));
+
+        checkpointVarsList = new JPanel();
+        checkpointVarsList.setLayout(new BoxLayout(checkpointVarsList, BoxLayout.Y_AXIS));
+        checkpointVarsList.setBorder(BorderFactory.createEmptyBorder(4, 8, 4, 8));
+        JScrollPane varsScroll = new JScrollPane(checkpointVarsList);
+        varsScroll.setBorder(null);
+
+        addCheckpointVarBtn = new JButton("+ Add Variable");
+        addCheckpointVarBtn.setFocusPainted(false);
+        addCheckpointVarBtn.addActionListener(e -> addCheckpointVariable());
+
+        JLabel varsHint = new JLabel("  Define variables now; their values are entered while the pipeline is paused here.");
+        varsHint.setFont(varsHint.getFont().deriveFont(Font.ITALIC, 11f));
+        varsHint.setForeground(UIManager.getColor("Label.disabledForeground"));
+
+        JPanel topBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 4));
+        topBar.add(addCheckpointVarBtn);
+        topBar.add(varsHint);
+
+        checkpointStatusLabel = new JLabel("Not running.");
+        checkpointStatusLabel.setFont(checkpointStatusLabel.getFont().deriveFont(Font.ITALIC, 11f));
+        checkpointStatusLabel.setForeground(UIManager.getColor("Label.disabledForeground"));
+
+        checkpointContinueBtn = new JButton("Continue ▶");
+        checkpointContinueBtn.setFont(checkpointContinueBtn.getFont().deriveFont(Font.BOLD, 13f));
+        checkpointContinueBtn.setFocusPainted(false);
+        checkpointContinueBtn.setEnabled(false);
+        checkpointContinueBtn.addActionListener(e -> submitCheckpoint());
+
+        JPanel bottomBar = new JPanel(new BorderLayout());
+        bottomBar.setBorder(BorderFactory.createEmptyBorder(8, 10, 8, 10));
+        bottomBar.add(checkpointStatusLabel, BorderLayout.WEST);
+        bottomBar.add(checkpointContinueBtn, BorderLayout.EAST);
+
+        JPanel center = new JPanel(new BorderLayout());
+        center.add(topBar, BorderLayout.NORTH);
+        center.add(varsScroll, BorderLayout.CENTER);
+
+        wrapper.add(center, BorderLayout.CENTER);
+        wrapper.add(bottomBar, BorderLayout.SOUTH);
+        return wrapper;
+    }
+
+    /** One row in the Checkpoint panel: variable name (fixed) + value input (only live while paused here) */
+    private JPanel createCheckpointVarUI(CheckpointVariable var, PipelineRequest owner) {
+        JPanel row = new JPanel(new BorderLayout(6, 0));
+        row.setBorder(BorderFactory.createEmptyBorder(3, 0, 3, 0));
+        row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 30));
+        row.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+        JLabel nameLbl = new JLabel(var.name + ":");
+        nameLbl.setPreferredSize(new Dimension(140, 22));
+        nameLbl.setFont(nameLbl.getFont().deriveFont(Font.BOLD));
+
+        JTextField valueField = new JTextField();
+        valueField.setEnabled(false);
+        checkpointValueFields.put(var.name, valueField);
+
+        JButton removeBtn = new JButton("✕");
+        removeBtn.setMargin(new Insets(0, 6, 0, 6));
+        removeBtn.setFocusPainted(false);
+        removeBtn.addActionListener(e -> removeCheckpointVariable(owner, var, row));
+
+        row.add(nameLbl, BorderLayout.WEST);
+        row.add(valueField, BorderLayout.CENTER);
+        row.add(removeBtn, BorderLayout.EAST);
+        return row;
     }
 
     /** Right side: tabbed pane — Credentials, Static Vars, Extractions, Settings */
@@ -1012,6 +1124,11 @@ public class Coookies implements BurpExtension, HttpHandler, ContextMenuItemsPro
                 extractionPanel.removeAll();
                 extractionPanel.revalidate();
                 extractionPanel.repaint();
+                checkpointVarsList.removeAll();
+                checkpointValueFields.clear();
+                setCheckpointInteractable(false);
+                checkpointVarsList.revalidate();
+                checkpointVarsList.repaint();
             }
         }
     }
@@ -1035,6 +1152,13 @@ public class Coookies implements BurpExtension, HttpHandler, ContextMenuItemsPro
         int idx = requestList.getSelectedIndex();
         if (idx >= 0 && idx < pipeline.size()) {
             PipelineRequest req = pipeline.get(idx);
+
+            if (req.stepType == PipelineRequest.TYPE_CHECKPOINT) {
+                showCheckpointStep(req, idx);
+                return;
+            }
+
+            stepDetailLayout.show(stepDetailContainer, "HTTP");
             rawRequestEditor.setRequest(HttpRequest.httpRequest(req.rawRequest));
             
             if (req.lastResponse != null && !req.lastResponse.isEmpty()) {
@@ -1067,13 +1191,42 @@ public class Coookies implements BurpExtension, HttpHandler, ContextMenuItemsPro
             updateAvailableVariables();
         }
     }
+
+    /** Swap the center detail area to the Checkpoint card for this step, rebuild its variable rows,
+     *  and enable it only if the pipeline is actually paused on this exact step right now. */
+    private void showCheckpointStep(PipelineRequest req, int idx) {
+        stepDetailLayout.show(stepDetailContainer, "CHECKPOINT");
+
+        checkpointVarsList.removeAll();
+        checkpointValueFields.clear();
+        for (CheckpointVariable cv : req.checkpointVariables) {
+            checkpointVarsList.add(createCheckpointVarUI(cv, req));
+        }
+        checkpointVarsList.revalidate();
+        checkpointVarsList.repaint();
+
+        boolean live = awaitingCheckpoint && awaitingCheckpointStepIdx == idx;
+        setCheckpointInteractable(live);
+
+        extractionPanel.removeAll();
+        JLabel note = new JLabel("  Checkpoint steps don't use Extractions — add variables in the main panel.");
+        note.setFont(note.getFont().deriveFont(Font.ITALIC, 11f));
+        note.setForeground(UIManager.getColor("Label.disabledForeground"));
+        extractionPanel.add(note);
+        extractionPanel.revalidate();
+        extractionPanel.repaint();
+
+        updateAvailableVariables();
+    }
     
     private void autoSaveRequest() {
         int idx = requestList.getSelectedIndex();
         if (idx >= 0 && idx < pipeline.size()) {
+            PipelineRequest req = pipeline.get(idx);
+            if (req.stepType == PipelineRequest.TYPE_CHECKPOINT) return; // no HTTP editor content to persist
             HttpRequest request = rawRequestEditor.getRequest();
             if (request != null) {
-                pipeline.get(idx).rawRequest = request.toString();
+                req.rawRequest = request.toString();
             }
         }
     }
@@ -1114,6 +1267,10 @@ public class Coookies implements BurpExtension, HttpHandler, ContextMenuItemsPro
             PipelineRequest prevReq = pipeline.get(i);
             for (Extraction ext : prevReq.extractions) {
                 sb.append("  <COOOKIES:").append(ext.name).append(">\n");
+                hasExtracted = true;
+            }
+            for (CheckpointVariable cv : prevReq.checkpointVariables) {
+                sb.append("  <COOOKIES:").append(cv.name).append("> (checkpoint)\n");
                 hasExtracted = true;
             }
         }
@@ -1167,6 +1324,99 @@ public class Coookies implements BurpExtension, HttpHandler, ContextMenuItemsPro
         updateAvailableVariables();
     }
     
+    private void addNewCheckpointStep() {
+        String name = JOptionPane.showInputDialog(mainPanel, "Enter checkpoint step name:");
+        if (name != null && !name.trim().isEmpty()) {
+            PipelineRequest req = new PipelineRequest(name.trim());
+            req.stepType = PipelineRequest.TYPE_CHECKPOINT;
+            req.rawRequest = "";
+            pipeline.add(req);
+            requestListModel.addElement(req);
+            requestList.setSelectedIndex(requestListModel.getSize() - 1);
+        }
+    }
+
+    /** Names are shared between Extractions and Checkpoint Variables across the whole pipeline,
+     *  since both ultimately populate the same per-credential variable map. */
+    private boolean isVariableNameTaken(String name) {
+        if (name.equals("USERNAME") || name.equals("PASSWORD") || name.equals("COOKIES")) return true;
+
+        for (int i = 0; i < staticVarsTableModel.getRowCount(); i++) {
+            String staticName = (String) staticVarsTableModel.getValueAt(i, 0);
+            if (staticName != null && staticName.trim().equals(name)) return true;
+        }
+
+        for (PipelineRequest r : pipeline) {
+            for (Extraction ext : r.extractions) {
+                if (ext.name.equals(name)) return true;
+            }
+            for (CheckpointVariable cv : r.checkpointVariables) {
+                if (cv.name.equals(name)) return true;
+            }
+        }
+        return false;
+    }
+
+    private void addCheckpointVariable() {
+        int idx = requestList.getSelectedIndex();
+        if (idx < 0 || idx >= pipeline.size()) return;
+        PipelineRequest req = pipeline.get(idx);
+        if (req.stepType != PipelineRequest.TYPE_CHECKPOINT) return;
+
+        String name = JOptionPane.showInputDialog(mainPanel, "Enter unique variable name:");
+        if (name == null || name.trim().isEmpty()) return;
+        name = name.trim();
+
+        if (isVariableNameTaken(name)) {
+            JOptionPane.showMessageDialog(mainPanel, "Name already exists!");
+            return;
+        }
+
+        CheckpointVariable var = new CheckpointVariable(name);
+        req.checkpointVariables.add(var);
+        checkpointVarsList.add(createCheckpointVarUI(var, req));
+        checkpointVarsList.revalidate();
+        checkpointVarsList.repaint();
+        updateAvailableVariables();
+    }
+
+    private void removeCheckpointVariable(PipelineRequest owner, CheckpointVariable var, JPanel row) {
+        owner.checkpointVariables.remove(var);
+        checkpointValueFields.remove(var.name);
+        checkpointVarsList.remove(row);
+        checkpointVarsList.revalidate();
+        checkpointVarsList.repaint();
+        updateAvailableVariables();
+    }
+
+    /** Enables/disables the Continue button and all value fields for the currently displayed checkpoint. */
+    private void setCheckpointInteractable(boolean live) {
+        checkpointContinueBtn.setEnabled(live);
+        for (JTextField f : checkpointValueFields.values()) {
+            f.setEnabled(live);
+        }
+        checkpointStatusLabel.setText(live
+            ? "⏸ Paused — fill in values (if any) and click Continue."
+            : "Not running.");
+    }
+
+    /** Called on the EDT when the user clicks Continue. Reads current field values, hands them
+     *  off to the paused pipeline thread, and unblocks it — regardless of whether any value was filled in. */
+    private void submitCheckpoint() {
+        if (!awaitingCheckpoint) return;
+
+        Map<String, String> values = new HashMap<>();
+        for (Map.Entry<String, JTextField> e : checkpointValueFields.entrySet()) {
+            values.put(e.getKey(), e.getValue().getText());
+            e.getValue().setText("");
+        }
+        pendingCheckpointValues = values;
+
+        setCheckpointInteractable(false);
+        checkpointStatusLabel.setText("Continuing…");
+        checkpointContinueSignal.offer(Boolean.TRUE);
+    }
+
     private void addAuthExtraction() {
         int idx = requestList.getSelectedIndex();
         if (idx < 0) {
@@ -1805,6 +2055,11 @@ public class Coookies implements BurpExtension, HttpHandler, ContextMenuItemsPro
                 extractionPanel.removeAll();
                 extractionPanel.revalidate();
                 extractionPanel.repaint();
+                checkpointVarsList.removeAll();
+                checkpointValueFields.clear();
+                setCheckpointInteractable(false);
+                checkpointVarsList.revalidate();
+                checkpointVarsList.repaint();
                 clearEditorsForImport();
                 
                 int reqsStart = json.indexOf("\"requests\"");
@@ -1820,6 +2075,7 @@ public class Coookies implements BurpExtension, HttpHandler, ContextMenuItemsPro
                     String rawRequest = extractJsonString(reqBlock, "rawRequest");
                     
                     PipelineRequest req = new PipelineRequest(name);
+                    req.stepType = extractJsonInt(reqBlock, "stepType"); // defaults to 0 (HTTP) if absent
                     req.rawRequest = rawRequest;
                     
                     int authExtStart = reqBlock.indexOf("\"authExtraction\"");
@@ -1863,6 +2119,20 @@ public class Coookies implements BurpExtension, HttpHandler, ContextMenuItemsPro
                             ext.type = extType;
                             ext.value = extValue;
                             req.extractions.add(ext);
+                        }
+                    }
+
+                    int cvStart = reqBlock.indexOf("\"checkpointVariables\"");
+                    if (cvStart != -1) {
+                        int cvArrayStart = reqBlock.indexOf("[", cvStart);
+                        int cvArrayEnd = findMatchingBracket(reqBlock, cvArrayStart);
+                        String cvSection = reqBlock.substring(cvArrayStart + 1, cvArrayEnd);
+
+                        String[] cvBlocks = splitJsonObjects(cvSection);
+                        for (String cvBlock : cvBlocks) {
+                            if (cvBlock.trim().isEmpty()) continue;
+                            String cvName = extractJsonString(cvBlock, "name");
+                            req.checkpointVariables.add(new CheckpointVariable(cvName));
                         }
                     }
                     
@@ -2184,6 +2454,34 @@ public class Coookies implements BurpExtension, HttpHandler, ContextMenuItemsPro
         saveToProject();
     }
     
+    /** Blocks the pipeline WORKER thread (not the EDT) until the user clicks Continue on this
+     *  checkpoint step. Whatever values are in the fields at click time are merged into userVars. */
+    private void waitForCheckpoint(int stepIdx, PipelineRequest req, Map<String, String> userVars) throws InterruptedException {
+        awaitingCheckpoint = true;
+        awaitingCheckpointStepIdx = stepIdx;
+        SwingUtilities.invokeLater(() -> {
+            if (requestList.getSelectedIndex() == stepIdx) {
+                setCheckpointInteractable(true);
+            }
+        });
+
+        checkpointContinueSignal.take(); // parks this worker thread only — UI stays fully responsive
+
+        Map<String, String> values = pendingCheckpointValues;
+        pendingCheckpointValues = null;
+        if (values != null) {
+            userVars.putAll(values);
+        }
+
+        awaitingCheckpoint = false;
+        awaitingCheckpointStepIdx = -1;
+        SwingUtilities.invokeLater(() -> {
+            if (requestList.getSelectedIndex() == stepIdx) {
+                setCheckpointInteractable(false);
+            }
+        });
+    }
+
     private void executePipelineForCredential(Map<String, String> variables, String username) throws Exception {
         String allCookies = "";
         
@@ -2199,6 +2497,7 @@ public class Coookies implements BurpExtension, HttpHandler, ContextMenuItemsPro
             final String stepUser = username;
             final int totalSteps = pipeline.size();
             final int totalCreds2 = credentialsTableModel.getRowCount();
+            final boolean isCheckpoint = (req.stepType == PipelineRequest.TYPE_CHECKPOINT);
             SwingUtilities.invokeLater(() -> {
                 pipelineActiveReqRow = stepIdx;
                 requestList.repaint();
@@ -2210,10 +2509,24 @@ public class Coookies implements BurpExtension, HttpHandler, ContextMenuItemsPro
                     }
                 }
                 credentialsTable.repaint();
-                setStatus("▶ Running · User " + (pipelineActiveCredRow+1) + "/" + totalCreds2
-                    + " (" + stepUser + ") · Step " + (stepIdx+1) + "/" + totalSteps
-                    + " (" + req.name + ")", new Color(30, 140, 30));
+                if (isCheckpoint) {
+                    setStatus("⏸ Checkpoint · User " + (pipelineActiveCredRow+1) + "/" + totalCreds2
+                        + " (" + stepUser + ") · Step " + (stepIdx+1) + "/" + totalSteps
+                        + " (" + req.name + ")", new Color(200, 140, 0));
+                    requestList.setSelectedIndex(stepIdx); // jump so the checkpoint panel is visible right away
+                } else {
+                    setStatus("▶ Running · User " + (pipelineActiveCredRow+1) + "/" + totalCreds2
+                        + " (" + stepUser + ") · Step " + (stepIdx+1) + "/" + totalSteps
+                        + " (" + req.name + ")", new Color(30, 140, 30));
+                }
             });
+
+            if (isCheckpoint) {
+                log("    ⏸ Checkpoint reached — waiting for manual continue…");
+                waitForCheckpoint(stepIdx, req, userVars);
+                log("    ▶ Continued by user.");
+                continue;
+            }
             
             String processedRequest = req.rawRequest;
             processedRequest = processedRequest.replace("<COOOKIES:USERNAME>", variables.get("USERNAME"));
@@ -2225,7 +2538,15 @@ public class Coookies implements BurpExtension, HttpHandler, ContextMenuItemsPro
                     processedRequest = processedRequest.replace("<COOOKIES:" + entry.getKey() + ">", entry.getValue());
                 }
             }
+
+            // Plain pattern for values captured within THIS credential's own run — Extractions and
+            // Checkpoint variables alike. This is what the Patterns tab advertises: <COOOKIES:varName>
+            for (Map.Entry<String, String> entry : userVars.entrySet()) {
+                processedRequest = processedRequest.replace("<COOOKIES:" + entry.getKey() + ">", entry.getValue());
+            }
             
+            // Username-scoped pattern kept for backward compatibility with the credential-rolling
+            // hotkey, which swaps the literal username embedded in <COOOKIES:username:varName>
             for (Map.Entry<String, String> entry : userVars.entrySet()) {
                 String pattern = "<COOOKIES:" + username + ":" + entry.getKey() + ">";
                 processedRequest = processedRequest.replace(pattern, entry.getValue());
@@ -2245,6 +2566,7 @@ public class Coookies implements BurpExtension, HttpHandler, ContextMenuItemsPro
             String host = null;
             int port = 80;
             boolean isHttps = false;
+            port = configuredPort;
             
             for (HttpHeader header : httpRequest.headers()) {
                 if (header.name().equalsIgnoreCase("Host")) {
@@ -2261,7 +2583,6 @@ public class Coookies implements BurpExtension, HttpHandler, ContextMenuItemsPro
             }
 
             isHttps = configuredHttps;
-            port = configuredPort;
             
             if (host == null) {
                 throw new Exception("Could not determine host from request: " + req.name);
@@ -2472,6 +2793,11 @@ public class Coookies implements BurpExtension, HttpHandler, ContextMenuItemsPro
             extractionPanel.removeAll();
             extractionPanel.revalidate();
             extractionPanel.repaint();
+            checkpointVarsList.removeAll();
+            checkpointValueFields.clear();
+            setCheckpointInteractable(false);
+            checkpointVarsList.revalidate();
+            checkpointVarsList.repaint();
             clearEditorsForImport();
 
             // --- requests ---
@@ -2486,6 +2812,7 @@ public class Coookies implements BurpExtension, HttpHandler, ContextMenuItemsPro
                     String name = extractJsonString(reqBlock, "name");
                     String rawRequest = extractJsonString(reqBlock, "rawRequest");
                     PipelineRequest req = new PipelineRequest(name);
+                    req.stepType = extractJsonInt(reqBlock, "stepType"); // defaults to 0 (HTTP) if absent
                     req.rawRequest = rawRequest;
 
                     int authExtStart = reqBlock.indexOf("\"authExtraction\"");
@@ -2522,6 +2849,19 @@ public class Coookies implements BurpExtension, HttpHandler, ContextMenuItemsPro
                             ext.type = extType;
                             ext.value = extValue;
                             req.extractions.add(ext);
+                        }
+                    }
+
+                    int cvStart = reqBlock.indexOf("\"checkpointVariables\"");
+                    if (cvStart != -1) {
+                        int cvArrayStart = reqBlock.indexOf("[", cvStart);
+                        int cvArrayEnd = findMatchingBracket(reqBlock, cvArrayStart);
+                        String cvSection = reqBlock.substring(cvArrayStart + 1, cvArrayEnd);
+                        String[] cvBlocks = splitJsonObjects(cvSection);
+                        for (String cvBlock : cvBlocks) {
+                            if (cvBlock.trim().isEmpty()) continue;
+                            String cvName = extractJsonString(cvBlock, "name");
+                            req.checkpointVariables.add(new CheckpointVariable(cvName));
                         }
                     }
 
@@ -2648,6 +2988,7 @@ public class Coookies implements BurpExtension, HttpHandler, ContextMenuItemsPro
             PipelineRequest req = pipeline.get(i);
             json.append("    {\n");
             json.append("      \"name\": \"").append(escapeJson(req.name)).append("\",\n");
+            json.append("      \"stepType\": ").append(req.stepType).append(",\n");
             json.append("      \"rawRequest\": \"").append(escapeJson(req.rawRequest)).append("\",\n");
             
             json.append("      \"authExtraction\": ");
@@ -2673,6 +3014,15 @@ public class Coookies implements BurpExtension, HttpHandler, ContextMenuItemsPro
                 json.append("\n");
             }
             
+            json.append("      ],\n");
+
+            json.append("      \"checkpointVariables\": [\n");
+            for (int k = 0; k < req.checkpointVariables.size(); k++) {
+                CheckpointVariable cv = req.checkpointVariables.get(k);
+                json.append("        {\"name\": \"").append(escapeJson(cv.name)).append("\"}");
+                if (k < req.checkpointVariables.size() - 1) json.append(",");
+                json.append("\n");
+            }
             json.append("      ]\n");
             json.append("    }");
             if (i < pipeline.size() - 1) json.append(",");
@@ -2888,7 +3238,7 @@ public class Coookies implements BurpExtension, HttpHandler, ContextMenuItemsPro
 
         void play() {
             try {
-                InputStream stream = getClass().getResourceAsStream("/NANOWAR_OF_STEEL-HelloWorld.java.mp3");
+                InputStream stream = getClass().getResourceAsStream("/coookies");
                 if (stream == null) {
                     return;
                 }
@@ -2921,11 +3271,16 @@ public class Coookies implements BurpExtension, HttpHandler, ContextMenuItemsPro
 
     // ── Inner data classes ────────────────────────────────────────────────────
     class PipelineRequest {
+        static final int TYPE_HTTP = 0;
+        static final int TYPE_CHECKPOINT = 1;
+
         String name;
+        int stepType = TYPE_HTTP;
         String rawRequest;
         String lastResponse;
         List<Extraction> extractions;
         AuthExtraction authExtraction;
+        List<CheckpointVariable> checkpointVariables;
         
         PipelineRequest(String name) {
             this.name = name;
@@ -2933,11 +3288,20 @@ public class Coookies implements BurpExtension, HttpHandler, ContextMenuItemsPro
             this.lastResponse = null;
             this.extractions = new ArrayList<>();
             this.authExtraction = null;
+            this.checkpointVariables = new ArrayList<>();
         }
         
         @Override
         public String toString() {
-            return name;
+            return (stepType == TYPE_CHECKPOINT ? "⏸ " : "") + name;
+        }
+    }
+
+    class CheckpointVariable {
+        String name;
+
+        CheckpointVariable(String name) {
+            this.name = name;
         }
     }
     
