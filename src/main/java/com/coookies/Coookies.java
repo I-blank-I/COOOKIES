@@ -49,6 +49,9 @@ public class Coookies implements BurpExtension, HttpHandler, ContextMenuItemsPro
     private JTable credentialsTable;
     private DefaultTableModel staticVarsTableModel;
     private JTable staticVarsTable;
+    private DefaultTableModel autoAuthHeadersTableModel;
+    private JTable autoAuthHeadersTable;
+    private static final String AUTO_AUTH_TRIGGER_HEADER = "X-Auto-Authorization";
     private JTextArea logArea;
     private JTextArea availableVarsArea;
     private List<PipelineRequest> pipeline;
@@ -79,7 +82,6 @@ public class Coookies implements BurpExtension, HttpHandler, ContextMenuItemsPro
 
     private JTextField defaultPortField;
     private JCheckBox forceHttpsCheckbox;
-    private JTextField executePipelineHotkeyField;
     private String executePipelineHotkey = "Ctrl+Shift+Equals";
     private int configuredPort = 443;
     private boolean configuredHttps = true;
@@ -124,8 +126,8 @@ public class Coookies implements BurpExtension, HttpHandler, ContextMenuItemsPro
             .build();
         api.userInterface().registerSettingsPanel(panel);
 
-        String preferredHotkey = panel.getString("Hotkey");
-        String savedExecHotkey = panel.getString("ExecutePipelineHotkey");
+        String preferredHotkey = panel.getString("Switch User Hotkey");
+        String savedExecHotkey = panel.getString("Execute Pipeline Hotkey");
         if (savedExecHotkey != null && !savedExecHotkey.trim().isEmpty()) {
             executePipelineHotkey = savedExecHotkey.trim();
         }
@@ -212,10 +214,30 @@ public class Coookies implements BurpExtension, HttpHandler, ContextMenuItemsPro
     public RequestToBeSentAction handleHttpRequestToBeSent(HttpRequestToBeSent requestToBeSent) {
         if (interceptionEnabled) {
             try {
-                String requestStr = requestToBeSent.toString();
+                HttpRequest currentRequest = requestToBeSent;
+
+                // Auto-Authorization: "X-Auto-Authorization: 1" is an internal-only trigger.
+                // Strip it and, if configured, apply the user's custom header(s) in its place.
+                String autoAuthValue = requestToBeSent.headerValue(AUTO_AUTH_TRIGGER_HEADER);
+                if (autoAuthValue != null && autoAuthValue.trim().equals("1")) {
+                    List<String[]> autoAuthHeaders = getConfiguredAutoAuthHeaders();
+                    String rebuiltRaw = applyAutoAuthHeaders(currentRequest.toString(), autoAuthHeaders);
+
+                    HttpRequest rebuiltRequest = HttpRequest.httpRequest(rebuiltRaw);
+                    if (requestToBeSent.httpService() != null) {
+                        rebuiltRequest = rebuiltRequest.withService(requestToBeSent.httpService());
+                    }
+                    currentRequest = rebuiltRequest;
+
+                    api.logging().logToOutput("Auto-Authorization triggered; applied " +
+                            autoAuthHeaders.size() + " configured header(s). Request headers now: " +
+                            currentRequest.headers().stream().map(HttpHeader::name).reduce((a, b) -> a + ", " + b).orElse("(none)"));
+                }
+
+                String requestStr = currentRequest.toString();
                 
                 if (!containsPatterns(requestStr)) {
-                    return RequestToBeSentAction.continueWith(requestToBeSent);
+                    return RequestToBeSentAction.continueWith(currentRequest);
                 }
                 
                 String[] resp = replacePatterns(requestStr);
@@ -244,6 +266,8 @@ public class Coookies implements BurpExtension, HttpHandler, ContextMenuItemsPro
                     api.logging().logToOutput("Replaced patterns in request from tool: " + requestToBeSent.toolSource().toolType());
                     return RequestToBeSentAction.continueWith(newRequest);
                 }
+
+                return RequestToBeSentAction.continueWith(currentRequest);
             } catch (Exception e) {
                 api.logging().logToError("Error in HTTP interception: " + e.getMessage());
                 e.printStackTrace();
@@ -990,45 +1014,115 @@ public class Coookies implements BurpExtension, HttpHandler, ContextMenuItemsPro
         expSection.add(new JScrollPane(expirationStringsArea), BorderLayout.CENTER);
         expSection.add(expBtns, BorderLayout.SOUTH);
 
-        // Execute Pipeline Hotkey
-        JPanel hotkeySection = new JPanel();
-        hotkeySection.setLayout(new BoxLayout(hotkeySection, BoxLayout.Y_AXIS));
-        hotkeySection.setBorder(BorderFactory.createTitledBorder("Execute Pipeline Hotkey"));
-        hotkeySection.setAlignmentX(Component.LEFT_ALIGNMENT);
-        hotkeySection.setMaximumSize(new Dimension(Integer.MAX_VALUE, 90));
+        // Auto-Authorization headers
+        JPanel autoAuthSection = new JPanel(new BorderLayout(0, 4));
+        autoAuthSection.setBorder(BorderFactory.createTitledBorder(
+                "Auto-Authorization Headers (triggered by \"" + AUTO_AUTH_TRIGGER_HEADER + ": 1\")"));
+        autoAuthSection.setAlignmentX(Component.LEFT_ALIGNMENT);
 
-        executePipelineHotkeyField = new JTextField(executePipelineHotkey, 20);
-        executePipelineHotkeyField.setFont(new Font("Monospaced", Font.PLAIN, 12));
-        executePipelineHotkeyField.setMaximumSize(new Dimension(Integer.MAX_VALUE, 25));
+        autoAuthHeadersTableModel = new DefaultTableModel(new String[]{"Header Name", "Header Value"}, 0) {
+            @Override public boolean isCellEditable(int r, int c) { return true; }
+        };
+        autoAuthHeadersTable = new JTable(autoAuthHeadersTableModel);
+        autoAuthHeadersTable.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
 
-        JButton applyHotkeyBtn = new JButton("Apply");
-        applyHotkeyBtn.setFocusPainted(false);
-        applyHotkeyBtn.addActionListener(e -> {
-            String newHotkey = executePipelineHotkeyField.getText().trim();
-            if (newHotkey.isEmpty()) return;
-            executePipelineHotkey = newHotkey;
-            JOptionPane.showMessageDialog(mainPanel,
-                "Hotkey updated to: " + newHotkey + "\n\nReload the extension in Burp to apply.",
-                "Hotkey Updated", JOptionPane.INFORMATION_MESSAGE);
+        JScrollPane autoAuthScroll = new JScrollPane(autoAuthHeadersTable);
+        autoAuthScroll.setPreferredSize(new Dimension(0, 100));
+
+        JButton addAutoAuthBtn    = new JButton("Add");
+        JButton removeAutoAuthBtn = new JButton("Remove");
+        JButton clearAutoAuthBtn  = new JButton("Clear");
+        addAutoAuthBtn.addActionListener(e -> autoAuthHeadersTableModel.addRow(new Object[]{"", ""}));
+        removeAutoAuthBtn.addActionListener(e -> {
+            int[] rows = autoAuthHeadersTable.getSelectedRows();
+            for (int i = rows.length - 1; i >= 0; i--) autoAuthHeadersTableModel.removeRow(rows[i]);
         });
+        clearAutoAuthBtn.addActionListener(e -> autoAuthHeadersTableModel.setRowCount(0));
 
-        JLabel hotkeyNote = new JLabel("  Format: Ctrl+Shift+Equals  |  Reload extension to apply changes");
-        hotkeyNote.setFont(hotkeyNote.getFont().deriveFont(Font.ITALIC, 10f));
-        hotkeyNote.setForeground(new Color(120, 120, 120));
+        JLabel autoAuthNote = new JLabel("  Outgoing requests with this header set to 1 have it stripped; these headers are applied instead");
+        autoAuthNote.setFont(autoAuthNote.getFont().deriveFont(Font.ITALIC, 10f));
+        autoAuthNote.setForeground(new Color(120, 120, 120));
 
-        JPanel hotkeyRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
-        hotkeyRow.add(new JLabel("Hotkey:"));
-        hotkeyRow.add(executePipelineHotkeyField);
-        hotkeyRow.add(applyHotkeyBtn);
-        hotkeySection.add(hotkeyRow);
-        hotkeySection.add(hotkeyNote);
+        JPanel autoAuthBtns = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+        autoAuthBtns.add(addAutoAuthBtn); autoAuthBtns.add(removeAutoAuthBtn); autoAuthBtns.add(clearAutoAuthBtn);
+
+        JPanel autoAuthSouth = new JPanel(new BorderLayout());
+        autoAuthSouth.add(autoAuthBtns, BorderLayout.NORTH);
+        autoAuthSouth.add(autoAuthNote, BorderLayout.SOUTH);
+
+        autoAuthSection.add(autoAuthScroll, BorderLayout.CENTER);
+        autoAuthSection.add(autoAuthSouth, BorderLayout.SOUTH);
 
         panel.add(httpSection);
         panel.add(Box.createVerticalStrut(12));
-        panel.add(hotkeySection);
-        panel.add(Box.createVerticalStrut(12));
         panel.add(expSection);
+        panel.add(Box.createVerticalStrut(12));
+        panel.add(autoAuthSection);
         return panel;
+    }
+
+    /** Reads the user-configured Auto-Authorization headers from the Settings tab table. */
+    private List<String[]> getConfiguredAutoAuthHeaders() {
+        List<String[]> headers = new ArrayList<>();
+        if (autoAuthHeadersTableModel == null) return headers;
+
+        // If a cell is still mid-edit (user typed a value but never hit Enter/Tab/clicked away),
+        // the TableModel still holds the old value. Force it to commit before we read.
+        if (autoAuthHeadersTable != null && autoAuthHeadersTable.isEditing()) {
+            TableCellEditor editor = autoAuthHeadersTable.getCellEditor();
+            if (editor != null) editor.stopCellEditing();
+        }
+
+        for (int i = 0; i < autoAuthHeadersTableModel.getRowCount(); i++) {
+            String name  = (String) autoAuthHeadersTableModel.getValueAt(i, 0);
+            String value = (String) autoAuthHeadersTableModel.getValueAt(i, 1);
+            if (name != null && !name.trim().isEmpty() && value != null) {
+                headers.add(new String[]{name.trim(), value});
+            }
+        }
+
+        api.logging().logToOutput("[COOOKIES] Auto-Auth table has " + autoAuthHeadersTableModel.getRowCount() +
+                " row(s); " + headers.size() + " valid header(s) read: " +
+                headers.stream().map(h -> h[0]).reduce((a, b) -> a + ", " + b).orElse("(none)"));
+
+        return headers;
+    }
+
+    /**
+     * Rebuilds the raw request text: strips the internal trigger header plus any existing
+     * occurrence of each configured header, then appends the configured headers fresh.
+     * Done as a plain string rewrite (same approach the pattern-replacement code already
+     * uses) because chaining withRemovedHeader/withUpdatedHeader directly on the
+     * HttpRequestToBeSent object the handler receives does not reliably stick.
+     */
+    private String applyAutoAuthHeaders(String rawRequest, List<String[]> headers) {
+        int bodyIdx = rawRequest.indexOf("\r\n\r\n");
+        String headPart = (bodyIdx == -1) ? rawRequest : rawRequest.substring(0, bodyIdx);
+        String bodyPart = (bodyIdx == -1) ? "" : rawRequest.substring(bodyIdx);
+
+        Set<String> namesToStrip = new HashSet<>();
+        namesToStrip.add(AUTO_AUTH_TRIGGER_HEADER.toLowerCase());
+        for (String[] h : headers) namesToStrip.add(h[0].trim().toLowerCase());
+
+        String[] lines = headPart.split("\r\n", -1);
+        StringBuilder newHead = new StringBuilder();
+        newHead.append(lines.length > 0 ? lines[0] : ""); // request line, unchanged
+
+        for (int i = 1; i < lines.length; i++) {
+            String line = lines[i];
+            int colonIdx = line.indexOf(':');
+            if (colonIdx > 0) {
+                String headerName = line.substring(0, colonIdx).trim().toLowerCase();
+                if (namesToStrip.contains(headerName)) continue; // drop; re-added fresh below if configured
+            }
+            newHead.append("\r\n").append(line);
+        }
+
+        for (String[] h : headers) {
+            newHead.append("\r\n").append(h[0].trim()).append(": ").append(h[1]);
+        }
+
+        return newHead.toString() + bodyPart;
     }
 
     /** Collapsible log drawer at the bottom (like TheAlchemist's API reference) */
@@ -2052,6 +2146,7 @@ public class Coookies implements BurpExtension, HttpHandler, ContextMenuItemsPro
                 requestListModel.clear();
                 credentialsTableModel.setRowCount(0);
                 staticVarsTableModel.setRowCount(0);
+                autoAuthHeadersTableModel.setRowCount(0);
                 extractionPanel.removeAll();
                 extractionPanel.revalidate();
                 extractionPanel.repaint();
@@ -2169,6 +2264,22 @@ public class Coookies implements BurpExtension, HttpHandler, ContextMenuItemsPro
                         String varName = extractJsonString(varBlock, "name");
                         String varValue = extractJsonString(varBlock, "value");
                         staticVarsTableModel.addRow(new Object[]{varName, varValue});
+                    }
+                }
+
+                int autoAuthStart = json.indexOf("\"autoAuthHeaders\"");
+                if (autoAuthStart != -1) {
+                    int autoAuthArrayStart = json.indexOf("[", autoAuthStart);
+                    int autoAuthArrayEnd = findMatchingBracket(json, autoAuthArrayStart);
+                    String autoAuthSection = json.substring(autoAuthArrayStart + 1, autoAuthArrayEnd);
+
+                    String[] autoAuthBlocks = splitJsonObjects(autoAuthSection);
+                    for (String autoAuthBlock : autoAuthBlocks) {
+                        if (autoAuthBlock.trim().isEmpty()) continue;
+
+                        String headerName = extractJsonString(autoAuthBlock, "name");
+                        String headerValue = extractJsonString(autoAuthBlock, "value");
+                        autoAuthHeadersTableModel.addRow(new Object[]{headerName, headerValue});
                     }
                 }
                 
@@ -2790,6 +2901,7 @@ public class Coookies implements BurpExtension, HttpHandler, ContextMenuItemsPro
             requestListModel.clear();
             credentialsTableModel.setRowCount(0);
             staticVarsTableModel.setRowCount(0);
+            autoAuthHeadersTableModel.setRowCount(0);
             extractionPanel.removeAll();
             extractionPanel.revalidate();
             extractionPanel.repaint();
@@ -2900,6 +3012,21 @@ public class Coookies implements BurpExtension, HttpHandler, ContextMenuItemsPro
                 }
             }
 
+            // --- auto-auth headers ---
+            int autoAuthStart = json.indexOf("\"autoAuthHeaders\"");
+            if (autoAuthStart != -1) {
+                int autoAuthArrayStart = json.indexOf("[", autoAuthStart);
+                int autoAuthArrayEnd = findMatchingBracket(json, autoAuthArrayStart);
+                String autoAuthSection = json.substring(autoAuthArrayStart + 1, autoAuthArrayEnd);
+                String[] autoAuthBlocks = splitJsonObjects(autoAuthSection);
+                for (String autoAuthBlock : autoAuthBlocks) {
+                    if (autoAuthBlock.trim().isEmpty()) continue;
+                    String headerName = extractJsonString(autoAuthBlock, "name");
+                    String headerValue = extractJsonString(autoAuthBlock, "value");
+                    autoAuthHeadersTableModel.addRow(new Object[]{headerName, headerValue});
+                }
+            }
+
             // --- expiration strings ---
             int expStart = json.indexOf("\"expirationStrings\"");
             if (expStart != -1) {
@@ -2944,22 +3071,6 @@ public class Coookies implements BurpExtension, HttpHandler, ContextMenuItemsPro
                     }
                     defaultPortField.setText(String.valueOf(configuredPort));
                     forceHttpsCheckbox.setSelected(configuredHttps);
-                }
-            }
-
-            // --- executePipelineHotkey ---
-            int execHkStart = json.indexOf("\"executePipelineHotkey\"");
-            if (execHkStart != -1) {
-                int colonIdx = json.indexOf(":", execHkStart);
-                int qStart   = json.indexOf("\"", colonIdx);
-                int qEnd     = json.indexOf("\"", qStart + 1);
-                if (qStart != -1 && qEnd > qStart) {
-                    String savedHk = unescapeJson(json.substring(qStart + 1, qEnd));
-                    if (!savedHk.trim().isEmpty()) {
-                        executePipelineHotkey = savedHk.trim();
-                        if (executePipelineHotkeyField != null)
-                            executePipelineHotkeyField.setText(executePipelineHotkey);
-                    }
                 }
             }
 
@@ -3055,6 +3166,19 @@ public class Coookies implements BurpExtension, HttpHandler, ContextMenuItemsPro
             }
         }
         json.append("  ],\n");
+
+        json.append("  \"autoAuthHeaders\": [\n");
+        for (int i = 0; i < autoAuthHeadersTableModel.getRowCount(); i++) {
+            String headerName = (String) autoAuthHeadersTableModel.getValueAt(i, 0);
+            String headerValue = (String) autoAuthHeadersTableModel.getValueAt(i, 1);
+            if (headerName != null && headerValue != null) {
+                json.append("    {\"name\": \"").append(escapeJson(headerName)).append("\", ");
+                json.append("\"value\": \"").append(escapeJson(headerValue)).append("\"}");
+                if (i < autoAuthHeadersTableModel.getRowCount() - 1) json.append(",");
+                json.append("\n");
+            }
+        }
+        json.append("  ],\n");
         
         json.append("  \"expirationStrings\": [\n");
         updateExpirationStringsList();
@@ -3070,8 +3194,7 @@ public class Coookies implements BurpExtension, HttpHandler, ContextMenuItemsPro
         json.append("  \"httpConfig\": {\n");
         json.append("    \"port\": ").append(configuredPort).append(",\n");
         json.append("    \"https\": ").append(configuredHttps).append("\n");
-        json.append("  },\n");
-        json.append("  \"executePipelineHotkey\": \"").append(escapeJson(executePipelineHotkey)).append("\"\n");
+        json.append("  }\n");
 
         json.append("}");
         return json.toString();
