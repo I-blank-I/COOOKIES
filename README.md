@@ -2,7 +2,7 @@
 
 ![](./img/cookies.png)
 
-![Burp Suite Pro](https://img.shields.io/badge/Burp%20Suite-Pro-orange) ![Version](https://img.shields.io/badge/version-2.0.1-blue)
+![Burp Suite Pro](https://img.shields.io/badge/Burp%20Suite-Pro-orange) ![Version](https://img.shields.io/badge/version-2.1.0-blue)
 
 Automate multi-step authentication flows and manage session tokens across multiple user accounts — all from inside Burp Suite.
 
@@ -25,7 +25,7 @@ Build a pipeline of HTTP requests that logs users in and extracts session tokens
 
 ## Docs
 
-- **[Guide](docs/GUIDE.md)** — building a pipeline, credentials, running it, hotkeys, checkpoints, auto-refresh, saving your config
+- **[Guide](docs/GUIDE.md)** — building a pipeline, credentials, running it, hotkeys, checkpoints, keeping sessions alive (expiration strings, login timer, refresh timer), saving your config
 - **[Patterns & Reference](docs/PATTERNS.md)** — the pattern syntax, extraction types, and a full worked example
 
 ---

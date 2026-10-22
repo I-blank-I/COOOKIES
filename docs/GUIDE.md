@@ -34,6 +34,25 @@ Authorization: Bearer <__COOOKIES__:guest>
 
 You can also right-click in any request editor → `Extension → COOOKIES` to insert or copy a pattern from the context menu.
 
+### Auto-Authorization header
+
+Instead of writing the session headers into every request, add one header naming the user:
+
+```http
+GET /api/profile HTTP/1.1
+Host: auth.example.com
+X-Auto-Authorization: admin
+```
+
+On send, COOOKIES removes `X-Auto-Authorization` and adds every row of **Settings → Auto-Authorization Headers** for that user. Rows are user-independent: write `USERNAME` where the user goes, and it is swapped for the requested one.
+
+| Header Name | Header Value |
+|-------------|--------------|
+| `Authorization` | `Bearer <__COOOKIES__:USERNAME>` |
+| `X-Csrf-Token` | `<COOOKIES:USERNAME:x-csrf>` |
+
+A header with the same name already in the request is replaced. If the user has no COOOKIES session yet (the login pipeline hasn't run for them), the trigger header is still removed but nothing is added, and the reason is written to the extension's error log. `X-Auto-Authorization: 1` still applies the rows exactly as written, for configs made before this change.
+
 ## 5 — Hotkeys
 
 | Hotkey | Action |
@@ -43,19 +62,46 @@ You can also right-click in any request editor → `Extension → COOOKIES` to i
 
 Both are rebindable in `Settings → Extensions → COOOKIES` (reload required). The COOOKIES tab is highlighted while the pipeline is running so you have a visual signal without switching tabs.
 
-## 6 — Session auto-refresh
+## 6 — Keeping sessions alive
 
-1. Enable **Resp Detect** in the header bar
-2. Go to **Settings** → add expiration strings (e.g. `Session expired`, `401 Unauthorized`)
-3. When a proxied response matches, the pipeline re-runs automatically and a `Coookies-Expiration: HIT` header is injected into the flagged response
+The **Session** selector in the header bar picks how sessions are kept alive. Only one way can be active at a time, or none:
 
-## 7 — Static variables
+| Mode | What it does |
+|------|--------------|
+| **Off** | Nothing: sessions last as long as the server allows |
+| **Expiration strings** | When a response contains one of the strings in **Settings → Session Expiration Strings** (e.g. `Session expired`, `401 Unauthorized`), the login pipeline re-runs automatically and a `Coookies-Expiration: HIT` header is added to the flagged response |
+| **Login timer** | Re-runs the login pipeline every `N` minutes, for apps with no refresh logic where a new login is the only way to a fresh session |
+| **Refresh timer** | Runs the refresh pipeline every `N` minutes (see section 7). Needs a Refresh Token Extraction in the login pipeline |
+
+How the two timers work:
+
+- **The countdown starts only when a login run finishes** with a timer mode selected. Picking a timer mode after logging in does not start it; run the login pipeline once. Each timed run then sets the next deadline (`next run at HH:MM` next to the selector).
+- **A failed timed run stops the timer** and keeps every user's previous values. For the login timer, a run fails if any user's login errors out or extracts no Final Auth Value. Run the login pipeline again to restart it.
+- **Changing the interval** shifts the running countdown, it doesn't restart it. Switching mode, or to **Off**, stops any running timer.
+- **Timed runs are unattended**: no popups, everything goes to the execution log. If the login pipeline has a checkpoint (MFA), a timed login pauses there until you fill it in.
+- **The selected mode and interval are saved in the Burp project** as soon as you change them. Tokens are not: after reopening the project, run the login pipeline once and the timer picks up from there.
+
+## 7 — Token refresh (refresh pipeline)
+
+For flows that hand out a refresh token (OAuth and similar): instead of logging in again, a second pipeline exchanges each user's refresh token for fresh values.
+
+1. In the login pipeline, select the step whose response contains the refresh token → **Extractions** → **Add Refresh Token Extraction 🔄**. This unlocks the **Refresh** pipeline and the **Refresh timer** mode.
+2. Above the pipeline list, switch from **Login** to **Refresh** and build the refresh flow there. Use `<COOOKIES:REFRESH_TOKEN>` for the current user's refresh token; everything extracted during login is available too.
+3. On the refresh step(s), add an **Auth Extraction ⭐** for the new token, and a **Refresh Token Extraction 🔄** if the server rotates refresh tokens. Both overwrite the user's previous values. A normal extraction that reuses a login extraction's name overwrites that value as well.
+4. Select **Session: Refresh timer**, set the interval, then run the login pipeline. **Refresh now** (in the Refresh view) runs the refresh pipeline immediately without starting a timer.
+
+Things to know:
+
+- The refresh pipeline runs once per user that holds a refresh token. Checkpoint steps are not available in it, since it runs unattended.
+- If a refresh fails for a user (request error, or the auth / refresh token can't be extracted), that user's previous values are kept, the error is logged, and the timer stops (see section 6).
+
+## 8 — Static variables
 
 `Static Variables` tab → add a name/value pair → use as `<COOOKIES:VAR_NAME>` inside any pipeline request. Useful for OAuth challenges, fixed headers, environment-specific values.
 
-## 8 — Persist your config
+## 9 — Persist your config
 
-`💾 Save` stores everything (pipeline, extractions, credentials, settings) directly into the Burp project file. It's restored automatically next time you open the project — no need to re-import a `.coookies` file.
+`💾 Save` stores everything (both pipelines, extractions, credentials, settings) directly into the Burp project file. It's restored automatically next time you open the project — no need to re-import a `.coookies` file.
 
 For portability, use `⬆ Export` / `⬇ Import` to save and load `.coookies` files.
 

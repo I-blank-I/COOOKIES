@@ -6,8 +6,9 @@
 |---------|-------|-------------|
 | `<COOOKIES:USERNAME>` | Pipeline only | Current user's username |
 | `<COOOKIES:PASSWORD>` | Pipeline only | Current user's password |
-| `<COOOKIES:COOKIES>` | Pipeline only | Aggregated `Set-Cookie` values from the previous step |
+| `<COOOKIES:COOKIES>` | Pipeline only | Cookie jar for the current user: every `Set-Cookie` received in the steps so far, as `name=value; name2=value2` |
 | `<COOOKIES:VAR_NAME>` | Pipeline only | Any static variable or extracted value |
+| `<COOOKIES:REFRESH_TOKEN>` | Pipeline only | Current user's refresh token (from the Refresh Token Extraction) |
 | `<COOOKIES:username:extractionName>` | Burp tools | Per-user extracted value |
 | `<__COOOKIES__:username>` | Burp tools | Final auth value for a specific user |
 
@@ -18,7 +19,7 @@
 | Type | Value format | Example |
 |------|-------------|---------|
 | **Header** | Header name | `Set-Cookie` → aggregates all cookies |
-| **JSON** | Path notation | `['data']['token']` |
+| **JSON** | Path notation, with `[n]` for array indices | `['data']['items'][0]['token']` |
 | **Regex** | First capture group | `token=([^;]+)` |
 
 For Regex extractions, click **Regex Builder** to open the regex builder: paste or load a sample response, highlight the value you want to extract, and a context-aware pattern is generated and tested live.

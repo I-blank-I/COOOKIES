@@ -7,7 +7,7 @@
 
     <groupId>com.coookies</groupId>
     <artifactId>coookies</artifactId>
-    <version>1.0.0</version>
+    <version>2.1.0</version>
     <packaging>jar</packaging>
 
     <properties>
@@ -28,6 +28,11 @@
             <groupId>javazoom</groupId>
             <artifactId>jlayer</artifactId>
             <version>1.0.1</version>
+        </dependency>
+        <dependency>
+            <groupId>com.google.code.gson</groupId>
+            <artifactId>gson</artifactId>
+            <version>2.11.0</version>
         </dependency>
     </dependencies>
 
